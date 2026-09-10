@@ -40,7 +40,10 @@ Any client can drive a call over that socket:
 2. The server answers `{"type": "ready", "sample_rate": 24000, "gender": ..., "name": ...}` and speaks the greeting.
 3. Send the microphone as **binary frames: 16 kHz, mono, 16-bit little-endian PCM** (20–50 ms per frame works well).
 4. Receive **binary frames: 24 kHz, mono, 16-bit PCM** to play back, plus JSON text frames: `user` (what was heard), `agent` (`text`, `final`, `interrupted`), `retract` (drop the last question), `clear` (stop playback now), `error`.
-5. Send `{"type": "stop"}` or close the socket to end the call.
+5. Send `{"type": "interrupt", "reason": "<optional>"}` the moment your own user starts talking over the agent: the reply is cancelled, its unheard text retracted and queued audio dropped — the same path Deepgram's `StartOfTurn` takes. A phone hears the agent through its own speaker, so the client knows first and waiting for the turn event costs a beat.
+6. Send `{"type": "stop"}` or close the socket to end the call.
+
+**Echo on a speakerphone.** The microphone stays open for the whole call, so the agent hears itself. A client watches its own microphone level while the agent speaks — the level settles at whatever the speaker feeds back, and a voice clearly above that is the caller — then stops playback and sends `interrupt`. The server guards the same case from its side: a transcript arriving while the agent talks counts as its own echo when most of its words are ones the agent just said (`BARGE_IN_ECHO_OVERLAP`, default 0.6, matched against the current reply and the one before it), or when it carries fewer than `BARGE_IN_MIN_NEW_WORDS` (default 2) words the agent did not say. `BARGE_IN_MIN_CHARS` (default 6) drops the shortest fragments.
 
 The page at `/` does exactly this. When the page is hosted on any non-localhost origin it connects to `socket_url`; on localhost it uses its own server.
 
