@@ -1,0 +1,17 @@
+# Caddy in front of the Dynamic Voice Agent — Pratham AI (see README "Host it").
+#
+# prathamai.mrpscan.com must point at this machine (A record on its public
+# IP). Caddy obtains and renews the Let's Encrypt certificate on its own —
+# ports 80 and 443 must be open — and passes the /ws WebSocket straight
+# through, so the app and the page connect over wss://prathamai.mrpscan.com/ws.
+#
+# Install: /etc/caddy/Caddyfile, then  sudo systemctl reload caddy
+
+prathamai.mrpscan.com {
+    reverse_proxy 127.0.0.1:8100
+    encode gzip
+
+    log {
+        output file /var/log/caddy/pratham-ai.log
+    }
+}

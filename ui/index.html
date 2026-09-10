@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dynamic Voice Agent</title>
+<style>
+  :root {
+    --bg: #0f1220; --panel: #181c30; --line: #262b45; --text: #e8eaf2; --muted: #9aa0b4;
+    --user: #2a3350; --agent: #1f2a3a; --green: #22c55e; --red: #ef4444; --gold: #f4c542;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 24px 16px 40px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Devanagari", "Nirmala UI", sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #20264a, var(--bg));
+    color: var(--text); display: flex; flex-direction: column; align-items: center;
+  }
+  main { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 20px; font-weight: 650; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  textarea {
+    width: 100%; min-height: 110px; resize: vertical; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    font: 14px/1.5 inherit; outline: none;
+  }
+  textarea:focus { border-color: #4f5b8a; }
+  textarea:disabled { opacity: .6; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .controls { display: flex; align-items: center; gap: 16px; }
+  #call {
+    border: none; border-radius: 14px; padding: 14px 26px; font: 600 15px inherit; color: #fff;
+    background: linear-gradient(160deg, #34d17a, #16a34a); cursor: pointer;
+    box-shadow: 0 8px 30px rgba(34,197,94,.3); transition: transform .12s ease;
+  }
+  #call:hover { transform: translateY(-1px); }
+  #call.live { background: linear-gradient(160deg, #ff6b6b, #dc2626); box-shadow: 0 8px 30px rgba(239,68,68,.3); }
+  #call:disabled { opacity: .6; cursor: default; }
+  .gender { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  .gender label { margin: 0; font-size: 13px; color: var(--muted); padding: 8px 14px; border-radius: 9px; cursor: pointer; user-select: none; }
+  .gender label:has(input:checked) { background: var(--user); color: var(--text); }
+  .gender label:has(input:disabled) { cursor: default; opacity: .7; }
+  .gender input { display: none; }
+  #status { font-size: 14px; color: var(--muted); }
+  #status.listening { color: #7ee0a1; }
+  #status.speaking { color: var(--gold); }
+  #status.error { color: #ff8a8a; }
+  #transcript {
+    display: flex; flex-direction: column; gap: 10px; min-height: 120px; padding: 14px;
+    border-radius: 14px; background: var(--panel); border: 1px solid var(--line);
+  }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.agent { align-self: flex-start; background: var(--agent); border-bottom-left-radius: 4px; }
+  .msg.agent.partial { opacity: .8; }
+  .msg.agent.interrupted::after { content: " …"; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Dynamic Voice Agent</h1>
+    <div class="sub">Deepgram Flux · GPT-5.6 Luna · ElevenLabs — use headphones</div>
+  </div>
+
+  <div>
+    <label for="instructions">Agent instructions (from prompt.md; edit before the call)</label>
+    <textarea id="instructions" spellcheck="false"></textarea>
+  </div>
+
+  <div class="controls">
+    <button id="call">Start call</button>
+    <div class="gender" title="Agent voice">
+      <label><input type="radio" name="gender" value="female" checked><span id="g-female">Female</span></label>
+      <label><input type="radio" name="gender" value="male"><span id="g-male">Male</span></label>
+    </div>
+    <div id="status">Ready</div>
+  </div>
+
+  <div id="transcript"><div class="empty">The conversation will appear here.</div></div>
+</main>
+
+<script>
+"use strict";
+const IN_RATE = 16000;          // what we send to the server (Deepgram)
+let OUT_RATE = 24000;           // what the server sends back (ElevenLabs); confirmed by "ready"
+
+const callBtn = document.getElementById("call");
+const statusEl = document.getElementById("status");
+const promptEl = document.getElementById("instructions");
+const transcriptEl = document.getElementById("transcript");
+
+let ws = null, audioCtx = null, micStream = null, processor = null, sourceNode = null, silentGain = null;
+let running = false, starting = false;
+let nextPlayTime = 0, idleTimer = null;
+const activeSources = new Set();
+let inBuf = new Float32Array(0), readPos = 0;
+let currentAgentEl = null;
+let SOCKET_URL = "";            // the deployed agent's socket (PRATHAM_AI_URL/ws), from /prompt
+
+fetch("/prompt").then(r => r.json()).then(d => {
+  SOCKET_URL = d.socket_url || "";
+  if (!promptEl.value) promptEl.value = d.prompt || "";
+  const r = document.querySelector('input[name=gender][value="' + d.gender + '"]');
+  if (r) r.checked = true;
+  if (d.names) {
+    document.getElementById("g-female").textContent = "Female · " + d.names.female;
+    document.getElementById("g-male").textContent = "Male · " + d.names.male;
+  }
+}).catch(() => {});
+
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
+function genderOf() { const r = document.querySelector("input[name=gender]:checked"); return r ? r.value : "female"; }
+function lockGender(on) { document.querySelectorAll("input[name=gender]").forEach(r => r.disabled = on); }
+
+// ── transcript ──────────────────────────────────────────────────────────────
+function clearEmpty() { const e = transcriptEl.querySelector(".empty"); if (e) e.remove(); }
+function addBubble(role, text) {
+  clearEmpty();
+  const el = document.createElement("div");
+  el.className = "msg " + role;
+  el.textContent = text;
+  transcriptEl.appendChild(el);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  return el;
+}
+function onUser(text) { currentAgentEl = null; addBubble("user", text); }
+function onAgent(text, final, interrupted) {
+  if (!currentAgentEl && interrupted) {      // a finished bubble being cut back to what was heard
+    const last = transcriptEl.lastElementChild;
+    if (last && last.classList.contains("agent")) currentAgentEl = last;
+  }
+  if (!currentAgentEl) currentAgentEl = addBubble("agent", "");
+  currentAgentEl.textContent = text;
+  currentAgentEl.classList.toggle("partial", !final);
+  if (interrupted) currentAgentEl.classList.add("interrupted");
+  if (final) { if (!text) currentAgentEl.remove(); currentAgentEl = null; }
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+function onRetract() {   // the caller kept talking before hearing anything: drop that question and any reply to it
+  const users = transcriptEl.querySelectorAll(".msg.user");
+  if (users.length) {
+    let el = users[users.length - 1];
+    while (el) { const next = el.nextElementSibling; el.remove(); el = next; }
+  }
+  currentAgentEl = null;
+}
+
+// ── playback: 24 kHz PCM → context rate, gapless ────────────────────────────
+function playPcm(int16) {
+  if (!audioCtx || !int16.length) return;
+  if (audioCtx.state === "suspended") { try { audioCtx.resume(); } catch (e) {} }
+  const n = int16.length, outRate = audioCtx.sampleRate, ratio = outRate / OUT_RATE;
+  const outLen = Math.max(1, Math.round(n * ratio));
+  const f32 = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const p = i / ratio, i0 = Math.floor(p), fr = p - i0;
+    const s0 = int16[i0] / 32768, s1 = int16[Math.min(i0 + 1, n - 1)] / 32768;
+    f32[i] = s0 * (1 - fr) + s1 * fr;
+  }
+  const buf = audioCtx.createBuffer(1, outLen, outRate);
+  buf.copyToChannel(f32, 0);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+  if (nextPlayTime < now) nextPlayTime = now + 0.05;
+  src.start(nextPlayTime);
+  nextPlayTime += buf.duration;
+  activeSources.add(src);
+  src.onended = () => activeSources.delete(src);
+  setStatus("Agent speaking…", "speaking");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (running) setStatus("Listening…", "listening"); },
+                         (nextPlayTime - audioCtx.currentTime) * 1000 + 60);
+}
+function clearPlayback() {
+  for (const s of activeSources) { try { s.stop(); } catch (e) {} }
+  activeSources.clear();
+  nextPlayTime = 0;
+  clearTimeout(idleTimer);
+}
+
+// ── capture: mic → 16 kHz int16 ─────────────────────────────────────────────
+function resampleTo16k(input, inRate) {
+  const merged = new Float32Array(inBuf.length + input.length);
+  merged.set(inBuf, 0); merged.set(input, inBuf.length);
+  inBuf = merged;
+  const ratio = inRate / IN_RATE, out = [];
+  while (readPos + 1 < inBuf.length) {
+    const i = Math.floor(readPos), fr = readPos - i;
+    out.push(inBuf[i] * (1 - fr) + inBuf[i + 1] * fr);
+    readPos += ratio;
+  }
+  const keep = Math.floor(readPos);
+  inBuf = inBuf.slice(keep); readPos -= keep;
+  return out;
+}
+function onAudio(e) {
+  if (!running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const down = resampleTo16k(e.inputBuffer.getChannelData(0), audioCtx.sampleRate);
+  if (!down.length) return;
+  const pcm = new Int16Array(down.length);
+  for (let i = 0; i < down.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(down[i] * 32767)));
+  ws.send(pcm.buffer);
+}
+
+// ── call lifecycle ──────────────────────────────────────────────────────────
+function wsUrl() {
+  // Deployed: talk to the agent at PRATHAM_AI_URL. Local runs keep their own socket.
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  if (SOCKET_URL && !local) return SOCKET_URL;
+  if (location.protocol === "file:" || !location.host) return null;
+  return (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws";
+}
+
+async function start() {
+  if (starting || running) return;
+  const url = wsUrl();
+  if (!url) { setStatus("Open http://localhost:8100 (python server.py), not the .html file.", "error"); return; }
+  starting = true;
+  callBtn.disabled = true;
+  setStatus("Connecting…");
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") { try { await audioCtx.resume(); } catch (e) {} }
+  try {  // unlock audio output inside the click gesture (iOS)
+    const u = audioCtx.createBufferSource();
+    u.buffer = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    u.connect(audioCtx.destination); u.start(0);
+  } catch (e) {}
+  inBuf = new Float32Array(0); readPos = 0; nextPlayTime = 0;
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+    });
+  } catch (err) {
+    starting = false; teardown();
+    setStatus("Microphone blocked — allow it in the address bar, then try again.", "error");
+    return;
+  }
+
+  let opened = false;
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    opened = true; starting = false; running = true;
+    ws.send(JSON.stringify({ type: "start", instructions: promptEl.value, gender: genderOf() }));
+    lockGender(true);
+    sourceNode = audioCtx.createMediaStreamSource(micStream);
+    processor = audioCtx.createScriptProcessor(2048, 1, 1);
+    silentGain = audioCtx.createGain(); silentGain.gain.value = 0;
+    processor.onaudioprocess = onAudio;
+    sourceNode.connect(processor); processor.connect(silentGain); silentGain.connect(audioCtx.destination);
+    callBtn.disabled = false; callBtn.classList.add("live"); callBtn.textContent = "End call";
+    promptEl.disabled = true;
+    transcriptEl.innerHTML = ""; currentAgentEl = null;
+    setStatus("Listening…", "listening");
+  };
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === "ready") OUT_RATE = m.sample_rate || OUT_RATE;
+      else if (m.type === "user") onUser(m.text);
+      else if (m.type === "agent") onAgent(m.text, m.final, m.interrupted);
+      else if (m.type === "retract") onRetract();
+      else if (m.type === "clear") { clearPlayback(); setStatus("Listening…", "listening"); }
+      else if (m.type === "error") setStatus(m.text, "error");
+      return;
+    }
+    let data = ev.data;
+    if (data.byteLength % 2) data = data.slice(0, data.byteLength - 1);
+    playPcm(new Int16Array(data));
+  };
+  ws.onerror = () => { if (!opened) setStatus("Can't reach " + url + " — is server.py running?", "error"); };
+  ws.onclose = () => {
+    starting = false;
+    if (!opened) { teardown(); setStatus("Connection failed. Run: python server.py", "error"); return; }
+    if (running) stop();
+  };
+}
+
+function teardown() {
+  running = false;
+  clearPlayback();
+  try { if (processor) processor.onaudioprocess = null; } catch (e) {}
+  for (const n of [sourceNode, processor, silentGain]) { try { n && n.disconnect(); } catch (e) {} }
+  try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { audioCtx && audioCtx.close(); } catch (e) {}
+  ws = null; audioCtx = null; micStream = null; processor = null; sourceNode = null; silentGain = null;
+  callBtn.classList.remove("live"); callBtn.textContent = "Start call"; callBtn.disabled = false;
+  promptEl.disabled = false;
+  lockGender(false);
+}
+
+function stop() {
+  try { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stop" })); } catch (e) {}
+  try { ws && ws.close(); } catch (e) {}
+  teardown();
+  setStatus("Call ended.");
+}
+
+callBtn.addEventListener("click", () => { running ? stop() : start(); });
+</script>
+</body>
+</html>

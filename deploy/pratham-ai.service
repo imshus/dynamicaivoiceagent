@@ -1,0 +1,23 @@
+# systemd unit for the Dynamic Voice Agent — Pratham AI (see README "Host it").
+# Install: /etc/systemd/system/pratham-ai.service, then
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pratham-ai
+# Adjust User / paths if the checkout is not /home/ubuntu/pratham-ai.
+
+[Unit]
+Description=Pratham AI voice agent (Deepgram Flux + GPT-5.6 Luna + ElevenLabs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pratham-ai
+# Only Caddy talks to the app; keys and settings come from .env in WorkingDirectory.
+Environment=HTTP_PORT=8100
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/pratham-ai/.venv/bin/python server.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
