@@ -78,7 +78,21 @@ FLUX_EOT_TIMEOUT_MS = _env_int("FLUX_EOT_TIMEOUT_MS", 5000)
 FLUX_LANGUAGES = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
 FLUX_LANGUAGE_HINTS = [h.strip().lower() for h in
                        os.getenv("FLUX_LANGUAGE_HINTS", "hi,en").split(",") if h.strip()]
-DEEPGRAM_KEYTERMS = [t.strip() for t in os.getenv("DEEPGRAM_KEYTERMS", "").split(",") if t.strip()]
+# Keyterm prompting: the words this helpline turns on, biased so Flux stops
+# hearing "cash tone" for "colorstone" or "cast" for "karat". The model can only
+# understand a caller whose words arrived intact, so this is the first place a
+# misunderstood question is fixed — before any prompt wording. Sent as REPEATED
+# keyterm= parameters (one comma-joined value would be taken as a single literal
+# term and boost nothing). Deepgram's limit is 500 tokens across all terms.
+DEEPGRAM_KEYTERMS = [t.strip() for t in os.getenv(
+    "DEEPGRAM_KEYTERMS",
+    "MRPscan,MRP,bullion,MCX,RTGS,cash rate,karat,purity,tunch,gold rate,"
+    "making charges,labour charge,wastage,gross weight,net weight,"
+    "diamond,packet code,sieve,clarity,colorstone,stone rate,"
+    "item code,masters,dashboard settings,scanner,tag,"
+    "e-invoice,GST,wishlist,employee manager,set permission,"
+    "dashboard matrices,active account,password manager"
+).split(",") if t.strip()]
 
 # ── The brain: GPT-5.6 Luna ──────────────────────────────────────────────────
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
@@ -98,6 +112,16 @@ PROMPT_FILE = _PROMPT_RAW if os.path.isabs(_PROMPT_RAW) else os.path.join(HERE, 
 DEFAULT_PROMPT = ("You are a friendly voice assistant on a live call. Reply the way the "
                   "caller speaks, in one to three short spoken sentences, with no lists, "
                   "markdown or emojis.")
+# What the agent knows — the MRPscan FAQ, in English and Hindi. It is appended
+# to the system prompt on every call (even when the client sends its own
+# instructions), so the answers come from approved text rather than invention.
+# The file is read fresh per call: edit it and the next caller gets the change.
+# Point KNOWLEDGE_FILE at another file, or leave it empty, for an agent that
+# should not know any of this.
+_KNOWLEDGE_RAW = os.getenv("KNOWLEDGE_FILE", "faq.md")
+KNOWLEDGE_FILE = ("" if not _KNOWLEDGE_RAW.strip() else
+                  _KNOWLEDGE_RAW if os.path.isabs(_KNOWLEDGE_RAW)
+                  else os.path.join(HERE, _KNOWLEDGE_RAW))
 
 # ── Agent gender: the voice and the model's own grammar must agree ───────────
 # Hindi verbs carry the speaker's gender ("बोल रही हूँ" / "बोल रहा हूँ"), so a
@@ -161,14 +185,37 @@ def gender_line(gender: str) -> str:
             f"forms that match how they speak.")
 
 
+def _read_file(path: str) -> str:
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+    except OSError as e:
+        logger.warning(f"Could not read {path}: {e!r}")
+        return ""
+
+
 def load_prompt() -> str:
     """Read prompt.md fresh (so an edit applies to the next call, no restart)."""
-    try:
-        with open(PROMPT_FILE, encoding="utf-8") as f:
-            text = f.read().strip()
-    except FileNotFoundError:
-        text = ""
-    return text or DEFAULT_PROMPT
+    return _read_file(PROMPT_FILE) or DEFAULT_PROMPT
+
+
+def load_knowledge() -> str:
+    """Read the FAQ fresh, for the same reason. Empty when there is no file."""
+    return _read_file(KNOWLEDGE_FILE)
+
+
+def build_system_prompt(instructions: str | None, gender: str) -> str:
+    """Persona (the client's own, or prompt.md), then who the agent is, then
+    everything it knows."""
+    parts = [(instructions or "").strip() or load_prompt(), gender_line(gender)]
+    knowledge = load_knowledge()
+    if knowledge:
+        parts.append(knowledge)
+    return "\n\n".join(parts)
 
 
 def deepgram_url() -> str:
@@ -230,6 +277,7 @@ def llm_params() -> dict:
 _SENT_RE = re.compile(r'^(.*?[.!?।]["\')\]]*)\s+', re.S)
 _CLAUSE_RE = re.compile(r'^(.*?[,;:—])\s+', re.S)
 _MARKUP_RE = re.compile(r'[*#`]+')
+_ARROW_RE = re.compile(r'\s*(?:→|->|➜|»)\s*')
 
 
 def next_chunk(buf: str, allow_clause: bool, clause_min_chars: int = 20) -> tuple[str, str]:
@@ -249,10 +297,14 @@ def next_chunk(buf: str, allow_clause: bool, clause_min_chars: int = 20) -> tupl
 
 def clean_for_speech(text: str) -> str:
     """Strip markup, and turn exclamation marks into full stops: "Hello!" is
-    what makes the voice jump bright and loud for a sentence and then settle."""
+    what makes the voice jump bright and loud for a sentence and then settle.
+    Menu arrows copied out of the FAQ become commas, so a step never reaches
+    the voice as a symbol."""
     text = _MARKUP_RE.sub("", text)
+    text = _ARROW_RE.sub(", ", text)
     text = re.sub(r"([.?])!+", r"\1", text)
     text = re.sub(r"!+", ".", text)
+    text = re.sub(r"\s+([,.?])", r"\1", text)
     return text.strip()
 
 
@@ -314,7 +366,7 @@ class VoiceSession:
         self.gender = g if g in VOICE_IDS else DEFAULT_GENDER
         self.voice_id = VOICE_IDS[self.gender]
         self.name = AGENT_NAMES[self.gender]
-        self.system_prompt = ((instructions or "").strip() or load_prompt()) + "\n\n" + gender_line(self.gender)
+        self.system_prompt = build_system_prompt(instructions, self.gender)
         self.history: list[dict] = []
         self.active = True
         self.turn_buffer = ""
