@@ -1,0 +1,81 @@
+# Dynamic Voice Agent
+
+Talk to an AI agent from the browser. Every reply is written live by the model — nothing is scripted.
+
+**Browser mic → Deepgram Flux (STT + turn-taking) → GPT-5.6 Luna (streamed) → ElevenLabs (streamed TTS) → browser speaker**
+
+## Run
+
+```bash
+pip install -r requirements.txt
+copy .env.example .env      # fill in DEEPGRAM_API_KEY, OPENAI_API_KEY, ELEVENLABS_API_KEY
+python server.py
+```
+
+Open **http://localhost:8100**, click **Start call**, and talk. Use headphones.
+
+## Change the agent
+
+- `prompt.md` — the persona. Edits apply on the next call, no restart.
+- The textarea on the page overrides `prompt.md` for that one call — paste a business description and talk to that agent.
+- **Female / Male** switch on the page — picks the voice (`ELEVENLABS_VOICE_ID_FEMALE` / `_MALE`), the name (`AGENT_NAME_*`) and the greeting, and tells the model which gender it speaks as (Hindi verbs are gendered, so voice and words must agree).
+- `GREETING` in `.env` — the first thing the agent says; `{name}` is filled in. `GREETING_FEMALE` / `GREETING_MALE` override it per gender. Leave empty for no greeting.
+
+## Voice: one tone for the whole call
+
+- **One ElevenLabs stream per call.** The greeting and every reply are text appended to the same input-streaming generation, kept alive through silences. A fresh generation per reply is what makes the voice come back on a slightly different tone, pace or level; one stream cannot.
+- `stability=1.0`, `style=0`, speaker boost off, `speed=1.0` fixed.
+- Exclamation marks are turned into full stops before speech ("Hello!" is what makes the voice jump bright and then settle), and the prompt asks for a calm, even tone.
+- On barge-in, audio for the cancelled text is dropped by character position (ElevenLabs' alignment data), so the same stream carries straight on with the next reply.
+
+## Socket details
+
+- Public URL: **https://prathamai.mrpscan.com** (`PRATHAM_AI_URL` in `.env`)
+- Socket: **wss://prathamai.mrpscan.com/ws**
+- `GET /prompt` returns the default instructions, gender, names and `socket_url`; `GET /health` returns `{"status":"ok"}`.
+
+Any client can drive a call over that socket:
+
+1. Open the socket and send `{"type": "start", "instructions": "<optional, replaces prompt.md>", "gender": "female" | "male"}`.
+2. The server answers `{"type": "ready", "sample_rate": 24000, "gender": ..., "name": ...}` and speaks the greeting.
+3. Send the microphone as **binary frames: 16 kHz, mono, 16-bit little-endian PCM** (20–50 ms per frame works well).
+4. Receive **binary frames: 24 kHz, mono, 16-bit PCM** to play back, plus JSON text frames: `user` (what was heard), `agent` (`text`, `final`, `interrupted`), `retract` (drop the last question), `clear` (stop playback now), `error`.
+5. Send `{"type": "stop"}` or close the socket to end the call.
+
+The page at `/` does exactly this. When the page is hosted on any non-localhost origin it connects to `socket_url`; on localhost it uses its own server.
+
+## Host it (prathamai.mrpscan.com)
+
+On an Ubuntu box with Caddy installed and DNS pointing `prathamai.mrpscan.com` at it:
+
+```bash
+git clone <this repo> /home/ubuntu/pratham-ai && cd /home/ubuntu/pratham-ai
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env   # keys, voice IDs, PRATHAM_AI_URL=https://prathamai.mrpscan.com
+sudo cp deploy/pratham-ai.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now pratham-ai
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+```
+
+Check `https://prathamai.mrpscan.com/health`, then open the site and click Start call. Ports 80 and 443 must be open; the app itself listens only on `127.0.0.1:8100` behind Caddy.
+
+## MRPscan app (Pratham AI tab)
+
+The MRPscan app's bottom-bar **Pratham AI** tab dials this server directly over the socket above (no browser): `frontend/utils/prathamAiCall.ts` streams the phone mic up as 16 kHz PCM and plays the 24 kHz replies through `react-native-audio-api`. The address it uses, in order:
+
+1. `PRATHAM_AI_URL` on the MRPscan backend, served at `GET /api/v1/app-config` — change it there and restart the backend; no APK rebuild.
+2. `EXPO_PUBLIC_PRATHAM_AI_URL` in `frontend/.env` — the build-time fallback (currently `https://prathamai.mrpscan.com`).
+
+## Files
+
+- `server.py` — FastAPI: serves the page, bridges the browser WebSocket to a session.
+- `agent.py` — the engine: Flux turn events, speculative LLM drafting, barge-in with retraction, ElevenLabs input-streaming.
+- `ui/index.html` — mic capture (16 kHz PCM), playback (24 kHz PCM), live transcript.
+
+## How a turn flows
+
+1. Flux `EagerEndOfTurn` → the model starts drafting the reply while the caller finishes.
+2. Flux `EndOfTurn` → if the final transcript matches the draft, it is reused; otherwise a fresh reply starts.
+3. Tokens are cut at sentence boundaries (clause boundary for the first piece) and pushed into ElevenLabs' input-streaming socket; audio streams straight to the browser.
+4. Flux `StartOfTurn` while the agent is talking → barge-in: playback cleared, reply cancelled. If no audio had played yet, the caller's text is kept and merged with what they say next.
+
+Latency per turn is logged: `first token`, `first audio`, `reply complete`, all measured from end of turn.
