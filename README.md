@@ -29,6 +29,21 @@ A jeweller does not ask the FAQ's question. They say "bhai rate kahan se aa raha
 3. **`OPENAI_REASONING_EFFORT=low`** gives the model a moment to pick the right note out of thirty. On a turn where Flux fires `EagerEndOfTurn`, that thinking happens while the caller is still finishing, so it usually costs nothing. Set it back to `none` if you want the last few milliseconds.
 
 `python test_understanding.py` reads twenty-one lines the way a jeweller really says them, past each one to the model, and prints what came back next to the note that should have answered it. It spends only your OpenAI key. Add a tag to run one area: `python test_understanding.py employee`.
+
+## One step at a time
+
+A caller cannot follow four menu steps read out in one breath. When the answer is a path, the agent says the first step, asks whether they are there, and stops. It gives the next step only once they say they have done it, and if they say they cannot find it, it stays on that step and describes it differently instead of moving on. A caller who says they know the app, or asks for all of it, gets it all at once.
+
+If the caller does not confirm, the agent stays where it is: it asks again whether that step is done, and describes the screen another way when they sound stuck. It never gives two steps in one breath.
+
+Waiting for the caller changes three things in the engine:
+
+- **Silence gets an answer, not more silence.** A caller doing the step says nothing, and the agent used to wait mutely until the line timed out. After `NUDGE_AFTER_SECONDS` (12) it checks in once — "have you opened it?" — in whatever language the call is in, and at most `NUDGE_MAX` (2) times before leaving them alone. The check-in is a note to the model, never stored in the conversation, so it cannot pile up. Their next word resets the count.
+
+- **A nod is a turn, not an interruption.** "Haan" said on top of the step is too small to cut the agent off, but it is not the agent's own echo either, so it is held and answered the instant the line goes quiet. Before this it was discarded and the caller had to say it twice. Genuine echo — the agent's own words coming back off a speaker — is still dropped.
+- **Silence is now expected.** The caller goes quiet while they tap through their screens, so the MRPscan app's silence hangup moved from ten seconds to forty-five (`PRATHAM_AI_SILENCE_MS`).
+
+`python test_understanding.py walk` plays one whole walkthrough — a question, two nods, and a turn where the caller is lost — and prints it turn by turn.
 - **Female / Male** switch on the page — picks the voice (`ELEVENLABS_VOICE_ID_FEMALE` / `_MALE`), the name (`AGENT_NAME_*`) and the greeting, and tells the model which gender it speaks as (Hindi verbs are gendered, so voice and words must agree).
 - `GREETING` in `.env` — the first thing the agent says; `{name}` is filled in. `GREETING_FEMALE` / `GREETING_MALE` override it per gender. Leave empty for no greeting.
 

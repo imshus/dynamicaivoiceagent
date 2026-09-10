@@ -5,6 +5,7 @@ Deepgram and no ElevenLabs):
 
     python test_understanding.py            # all of them
     python test_understanding.py gold       # only lines tagged gold
+    python test_understanding.py walk       # one guided walkthrough, turn by turn
 
 Each line below is how a jeweller actually says the thing, mid-work, in
 Hinglish — never in the words the notes use. The right column says which note
@@ -65,6 +66,44 @@ CASES: list[tuple[str, str, str]] = [
 ]
 
 
+# One caller, one job, spoken the way it really goes: a question, a nod, a
+# moment of being lost, and a stretch where they say nothing at all because
+# they are looking at their screen. None is that silence — on a real call the
+# agent checks in by itself after NUDGE_AFTER_SECONDS. The agent should give
+# ONE step per turn and hold its place until the caller confirms.
+WALK: list[str | None] = [
+    "mujhe apne sarafa wala rate lagana hai app me",
+    "haan",
+    "nahi mil raha, kahan hai wo",
+    "haan ab dikh gaya",
+    None,                       # the caller goes quiet, doing the step
+    "ho gaya",
+]
+
+
+async def walkthrough(client, system: str) -> None:
+    history: list[dict] = [{"role": "system", "content": system}]
+    for said in WALK:
+        if said is None:
+            print(f"caller: … says nothing for {agent.NUDGE_AFTER_SECONDS:.0f} seconds")
+            messages = history + [{"role": "system", "content": agent.NUDGE_INSTRUCTION}]
+        else:
+            print(f"caller: {said}")
+            history.append({"role": "user", "content": said})
+            messages = history
+        try:
+            r = await client.chat.completions.create(
+                model=agent.OPENAI_MODEL, messages=messages, **agent.llm_params())
+            reply = (r.choices[0].message.content or "").strip()
+        except Exception as e:
+            print(f"!! {e!r}")
+            return
+        history.append({"role": "assistant", "content": reply})
+        print(f"Priya : {agent.clean_for_speech(reply)}\n")
+    print("Read down: one step per turn, the same step again where the caller was lost,\n"
+          "and a check-in rather than silence when they said nothing.")
+
+
 async def ask(client, system: str, said: str) -> str:
     try:
         r = await client.chat.completions.create(
@@ -79,6 +118,12 @@ async def ask(client, system: str, said: str) -> str:
 
 async def main() -> None:
     only = sys.argv[1].lower() if len(sys.argv) > 1 else ""
+    if only == "walk":
+        system = agent.build_system_prompt(None, "female")
+        print(f"{agent.OPENAI_MODEL}, reasoning {agent.OPENAI_REASONING_EFFORT} — "
+              f"{len(WALK)} turns\n")
+        await walkthrough(agent.get_llm(), system)
+        return
     cases = [c for c in CASES if not only or c[0] == only]
     if not cases:
         print(f"No cases tagged {only!r}. Tags: {sorted({c[0] for c in CASES})}")

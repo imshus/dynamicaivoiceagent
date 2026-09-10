@@ -106,6 +106,19 @@ MAX_HISTORY_TURNS = _env_int("MAX_HISTORY_TURNS", 20)
 # Start the model on Flux's EagerEndOfTurn so its latency is hidden behind the
 # last ~200 ms of the caller's turn. One extra LLM call per false eager.
 SPECULATIVE_LLM = _env_bool("SPECULATIVE_LLM", True)
+# Waiting for a step to be done is not the same as waiting for an answer. When
+# the agent has asked whether the caller is there and nothing comes back, it
+# checks in rather than sitting mute until the line times out. Twice, then it
+# leaves them alone — a caller who is genuinely busy must not be nagged.
+# 0 turns it off.
+NUDGE_AFTER_SECONDS = _env_float("NUDGE_AFTER_SECONDS", 12.0)
+NUDGE_MAX = _env_int("NUDGE_MAX", 2)
+NUDGE_INSTRUCTION = os.getenv(
+    "NUDGE_INSTRUCTION",
+    "The caller has said nothing for a while. They are probably still doing the last step, or "
+    "did not hear you. Check in once, in one short sentence, in the language you have been "
+    "speaking: ask whether they have done it, and offer to say it again if they are stuck. Do "
+    "not repeat the whole explanation and do not move on to the next step.")
 LLM_ERROR_REPLY = os.getenv("LLM_ERROR_REPLY", "Sorry, I missed that. Could you say it again?")
 _PROMPT_RAW = os.getenv("PROMPT_FILE", "prompt.md")
 PROMPT_FILE = _PROMPT_RAW if os.path.isabs(_PROMPT_RAW) else os.path.join(HERE, _PROMPT_RAW)
@@ -373,6 +386,10 @@ class VoiceSession:
         self.reply_task: asyncio.Task | None = None
         self._reply_state: _Reply | None = None
         self._spec: _Speculation | None = None
+        self._deferred: asyncio.Task | None = None   # a confirmation heard mid-reply
+        self._nudge_task: asyncio.Task | None = None
+        self._quiet_since: float | None = None       # when the line last went quiet
+        self._nudges_sent = 0
         self._turn_end: float | None = None
         self.playback_until = 0.0
         self._agent_text = ""            # what the agent is saying now (echo check)
@@ -399,6 +416,7 @@ class VoiceSession:
         except Exception as e:
             logger.error(f"ElevenLabs stream could not be opened: {e!r} — will retry on the first reply")
         self._tts_keepalive = asyncio.create_task(self._tts_keepalive_loop())
+        self._nudge_task = asyncio.create_task(self._nudge_loop())
         await self._send_json({"type": "ready", "sample_rate": OUTPUT_SAMPLE_RATE,
                                "gender": self.gender, "name": self.name})
         greeting = GREETINGS[self.gender].replace("{name}", self.name)
@@ -430,7 +448,8 @@ class VoiceSession:
     async def close(self):
         self.active = False
         self._drop_speculation("session closed")
-        for task in (self.reply_task, self._dg_task, self._tts_keepalive):
+        self._cancel_deferred()
+        for task in (self.reply_task, self._dg_task, self._tts_keepalive, self._nudge_task):
             if task is not None and not task.done():
                 task.cancel()
                 try:
@@ -530,10 +549,23 @@ class VoiceSession:
         if event == "EndOfTurn":
             if not transcript:
                 return
-            if busy and self._looks_like_echo(transcript):
+            if busy and self._sounds_like_own_words(transcript):
                 logger.info(f"[EndOfTurn] {transcript!r} → own echo, dropped")
                 return
+            if busy:
+                # Words of the caller's own, said while the agent was still
+                # talking — in a walkthrough this is "haan, ho gaya" arriving
+                # on top of the step. Too small to interrupt for, but it is a
+                # real turn: hold it and answer the moment the line is quiet,
+                # instead of making the caller say it twice.
+                self.turn_buffer = (self.turn_buffer + " " + transcript).strip()
+                self._caller_spoke()
+                logger.info(f"[EndOfTurn while speaking] {transcript!r} → answered after this reply")
+                if self._deferred is None or self._deferred.done():
+                    self._deferred = asyncio.create_task(self._turn_after_playback())
+                return
             self._turn_end = time.monotonic()
+            self._caller_spoke()
             text = (self.turn_buffer + " " + transcript).strip()
             self.turn_buffer = ""
             logger.info(f"[EndOfTurn] {text!r}")
@@ -546,6 +578,58 @@ class VoiceSession:
                     spec.cancel()
                     logger.info("early draft discarded (text changed)")
                 self._launch_reply(text, self._llm_stream(self._messages(text)))
+
+    async def _nudge_loop(self):
+        """The caller went quiet after being asked something. Check in, at most
+        NUDGE_MAX times, then leave the line alone."""
+        try:
+            while self.active:
+                await asyncio.sleep(0.25)
+                if NUDGE_AFTER_SECONDS <= 0 or not self.history:
+                    continue
+                if self._agent_busy() or self.turn_buffer.strip() or self._spec is not None:
+                    self._quiet_since = None      # someone is mid-turn
+                    continue
+                if self._quiet_since is None:
+                    self._quiet_since = time.monotonic()
+                    continue
+                if (self._nudges_sent >= NUDGE_MAX
+                        or time.monotonic() - self._quiet_since < NUDGE_AFTER_SECONDS):
+                    continue
+                self._nudges_sent += 1
+                self._quiet_since = None
+                self._turn_end = None             # nothing to measure latency against
+                logger.info(f"[nudge {self._nudges_sent}/{NUDGE_MAX}] caller quiet for "
+                            f"{NUDGE_AFTER_SECONDS:.0f}s — checking in")
+                self._launch_reply(None, self._llm_stream(self._nudge_messages()))
+        except asyncio.CancelledError:
+            pass
+
+    def _caller_spoke(self):
+        """A real turn from the caller: they are with us, so start counting again."""
+        self._nudges_sent = 0
+        self._quiet_since = None
+
+    async def _turn_after_playback(self):
+        """Answer a held confirmation as soon as the agent stops speaking."""
+        try:
+            while self._agent_busy():
+                await asyncio.sleep(0.05)
+            text = self.turn_buffer.strip()
+            if not text:
+                return
+            self.turn_buffer = ""
+            self._turn_end = time.monotonic()
+            logger.info(f"[held turn] {text!r}")
+            self._launch_reply(text, self._llm_stream(self._messages(text)))
+        except asyncio.CancelledError:
+            pass
+
+    def _cancel_deferred(self):
+        """A fresher turn won: whatever was held is part of it now, or gone."""
+        task, self._deferred = self._deferred, None
+        if task is not None and not task.done():
+            task.cancel()
 
     # ── turn-taking helpers ──────────────────────────────────────────────────
     def _audio_owed(self) -> int:
@@ -567,6 +651,18 @@ class VoiceSession:
         the agent's own echo when most of its words are the agent's, or when
         it brings too few words of its own to be the caller cutting in.
         """
+        if self._sounds_like_own_words(transcript):
+            return True
+        words = re.findall(r"\w+", transcript.lower())
+        said_words = set(re.findall(r"\w+", (self._agent_text + " " + self._spoken_before).lower()))
+        known = sum(w in said_words for w in words)
+        return (len(words) - known) < BARGE_IN_MIN_NEW_WORDS
+
+    def _sounds_like_own_words(self, transcript: str) -> bool:
+        """The narrower half of the test: are most of these the agent's own
+        words coming back? A caller's "haan" shares nothing with the step just
+        read out, so it fails here — which is what lets a one-word confirmation
+        be held as a turn while still never interrupting the agent."""
         said = (self._agent_text + " " + self._spoken_before).strip()
         if not said:
             return False
@@ -574,14 +670,14 @@ class VoiceSession:
         if not words:
             return False
         said_words = set(re.findall(r"\w+", said.lower()))
-        known = sum(w in said_words for w in words)
-        if known / len(words) >= BARGE_IN_ECHO_OVERLAP:
-            return True
-        return (len(words) - known) < BARGE_IN_MIN_NEW_WORDS
+        return sum(w in said_words for w in words) / len(words) >= BARGE_IN_ECHO_OVERLAP
 
     async def _barge_in(self, heard: str):
         st, task = self._reply_state, self.reply_task
         logger.info(f"[barge-in] {heard!r}")
+        # The caller is properly talking now; anything held for later belongs
+        # to this turn, which arrives as its own EndOfTurn.
+        self._cancel_deferred()
         running = task is not None and not task.done()
         if running:
             task.cancel()
@@ -637,6 +733,13 @@ class VoiceSession:
             queue.put_nowait(None)
 
     # ── the brain ────────────────────────────────────────────────────────────
+    def _nudge_messages(self) -> list[dict]:
+        """The conversation so far, plus a note that the line has gone quiet.
+        The note is never stored, so it cannot pile up over a long call."""
+        return ([{"role": "system", "content": self.system_prompt}]
+                + self.history[-2 * MAX_HISTORY_TURNS:]
+                + [{"role": "system", "content": NUDGE_INSTRUCTION}])
+
     def _messages(self, user_text: str) -> list[dict]:
         msgs = [{"role": "system", "content": self.system_prompt}]
         msgs += self.history[-2 * MAX_HISTORY_TURNS:]
@@ -672,6 +775,7 @@ class VoiceSession:
     # ── the reply pipeline: tokens → the ElevenLabs stream ───────────────────
     def _launch_reply(self, user_text: str | None, source: AsyncIterator[str],
                       extra_task: asyncio.Task | None = None):
+        self._cancel_deferred()
         prev = self.reply_task
         st = _Reply(user_text, source, extra_task, self._turn_end if user_text else None)
         self._reply_state = st
