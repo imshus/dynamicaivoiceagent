@@ -137,10 +137,16 @@ TTS_IDLE_RESYNC_SECONDS = 1.5       # after this much silence from ElevenLabs, e
 
 # ── Turn-taking ──────────────────────────────────────────────────────────────
 BARGE_IN_ENABLED = _env_bool("BARGE_IN_ENABLED", True)
-BARGE_IN_MIN_CHARS = _env_int("BARGE_IN_MIN_CHARS", 2)
+BARGE_IN_MIN_CHARS = _env_int("BARGE_IN_MIN_CHARS", 6)
 # Share of the caller's words that also occur in what the agent just said,
 # above which the "speech" is treated as the agent's own echo.
 BARGE_IN_ECHO_OVERLAP = _env_float("BARGE_IN_ECHO_OVERLAP", 0.6)
+# A phone on speaker has no echo canceller on that path: the microphone hears
+# the agent and Flux transcribes it as if the caller had spoken. Besides the
+# overlap share, a transcript arriving while the agent talks must carry at
+# least this many words the agent did NOT say before it counts as the caller
+# cutting in — a fragment of the agent's own sentence carries none.
+BARGE_IN_MIN_NEW_WORDS = _env_int("BARGE_IN_MIN_NEW_WORDS", 2)
 # GREETING may use {name}; GREETING_FEMALE / GREETING_MALE override it per
 # gender (a Hindi greeting needs that, since its verbs are gendered too).
 GREETING = os.getenv("GREETING", "").strip()
@@ -318,6 +324,7 @@ class VoiceSession:
         self._turn_end: float | None = None
         self.playback_until = 0.0
         self._agent_text = ""            # what the agent is saying now (echo check)
+        self._spoken_before = ""         # the reply before it, still ringing in the room
         self._dg_ws = None
         self._dg_task: asyncio.Task | None = None
         # The one ElevenLabs stream for the whole call, and where we are in it.
@@ -354,6 +361,19 @@ class VoiceSession:
             await ws.send(pcm)
         except Exception as e:
             logger.warning(f"Could not forward audio to Deepgram: {e!r}")
+
+    async def interrupt(self, reason: str = "caller spoke"):
+        """
+        The client heard its own user start talking and says so.
+
+        A phone hears the agent through its own speaker, so waiting for Flux
+        to call it a turn is both slow and unreliable — the client knows
+        first. This stops the reply exactly as Flux's StartOfTurn does; what
+        the caller is saying then arrives as audio in the usual way.
+        """
+        if not self._agent_busy():
+            return
+        await self._barge_in(f"[client: {reason}]")
 
     async def close(self):
         self.active = False
@@ -487,15 +507,25 @@ class VoiceSession:
                 or self._audio_owed() > 0)
 
     def _looks_like_echo(self, transcript: str) -> bool:
-        said = self._agent_text
+        """
+        Is this the agent hearing itself?
+
+        The room can still be carrying the previous reply as well as the one
+        being spoken, so both count as "what the agent said". A transcript is
+        the agent's own echo when most of its words are the agent's, or when
+        it brings too few words of its own to be the caller cutting in.
+        """
+        said = (self._agent_text + " " + self._spoken_before).strip()
         if not said:
             return False
         words = re.findall(r"\w+", transcript.lower())
         if not words:
             return False
         said_words = set(re.findall(r"\w+", said.lower()))
-        overlap = sum(w in said_words for w in words) / len(words)
-        return overlap >= BARGE_IN_ECHO_OVERLAP
+        known = sum(w in said_words for w in words)
+        if known / len(words) >= BARGE_IN_ECHO_OVERLAP:
+            return True
+        return (len(words) - known) < BARGE_IN_MIN_NEW_WORDS
 
     async def _barge_in(self, heard: str):
         st, task = self._reply_state, self.reply_task

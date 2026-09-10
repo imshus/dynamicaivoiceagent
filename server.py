@@ -109,6 +109,10 @@ async def talk(ws: WebSocket):
             if kind == "start" and session is None:
                 session = VoiceSession(send_audio, send_json, ctrl.get("instructions"), ctrl.get("gender"))
                 await session.start()
+            elif kind == "interrupt":
+                # The client heard its user start talking over the agent.
+                if session is not None:
+                    await session.interrupt(str(ctrl.get("reason") or "caller spoke")[:60])
             elif kind == "stop":
                 break
     except WebSocketDisconnect:

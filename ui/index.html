@@ -197,9 +197,47 @@ function resampleTo16k(input, inRate) {
   inBuf = inBuf.slice(keep); readPos -= keep;
   return out;
 }
+// ── talking over the agent ──────────────────────────────────────────────────
+// The mic stays open the whole call, so a caller can cut in at any moment.
+// Waiting for Deepgram to call it a turn costs a beat and, on a speakerphone,
+// can be the agent hearing itself; the page knows first. While the agent is
+// speaking, the floor learns whatever the speaker is putting into the mic, and
+// a voice clearly above that floor stops the agent at once.
+const DT_FRAMES = 3;        // consecutive loud frames before it counts (~100 ms)
+const DT_MARGIN = 2.5;      // how far above the learnt echo floor a voice must be
+const DT_ABSOLUTE = 0.02;   // and its own minimum level, so quiet rooms sit still
+let echoFloor = 0, loudFrames = 0;
+
+function agentSpeaking() {
+  return Boolean(audioCtx) && nextPlayTime > audioCtx.currentTime + 0.02;
+}
+
+function noteMicLevel(frame) {
+  if (!agentSpeaking()) { echoFloor = 0; loudFrames = 0; return; }
+  let sum = 0, n = 0;
+  for (let i = 0; i < frame.length; i += 4) { sum += frame[i] * frame[i]; n++; }
+  const rms = Math.sqrt(sum / Math.max(1, n));
+  echoFloor = echoFloor ? echoFloor * 0.85 + rms * 0.15 : rms;
+  if (rms > DT_ABSOLUTE && rms > echoFloor * DT_MARGIN) {
+    if (++loudFrames >= DT_FRAMES) { loudFrames = 0; interruptAgent(); }
+  } else {
+    loudFrames = 0;
+  }
+}
+
+function interruptAgent() {
+  if (!running || !ws || ws.readyState !== WebSocket.OPEN) return;
+  clearPlayback();          // the agent stops mid-word, and its echo with it
+  echoFloor = 0;
+  setStatus("Listening…", "listening");
+  try { ws.send(JSON.stringify({ type: "interrupt", reason: "talked over" })); } catch (e) {}
+}
+
 function onAudio(e) {
   if (!running || !ws || ws.readyState !== WebSocket.OPEN) return;
-  const down = resampleTo16k(e.inputBuffer.getChannelData(0), audioCtx.sampleRate);
+  const input = e.inputBuffer.getChannelData(0);
+  noteMicLevel(input);
+  const down = resampleTo16k(input, audioCtx.sampleRate);
   if (!down.length) return;
   const pcm = new Int16Array(down.length);
   for (let i = 0; i < down.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(down[i] * 32767)));
