@@ -2,7 +2,7 @@
 
 Talk to an AI agent from the browser. Every reply is written live by the model — nothing is scripted.
 
-**Browser mic → Deepgram Flux (STT + turn-taking) → GPT-5.6 Luna (streamed) → ElevenLabs (streamed TTS) → browser speaker**
+**Browser mic → Deepgram Flux (STT + turn-taking) → GPT-6 Luna (streamed) → ElevenLabs (streamed TTS) → browser speaker**
 
 ## Run
 

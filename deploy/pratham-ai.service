@@ -4,7 +4,7 @@
 # Adjust User / paths if the checkout is not /home/ubuntu/pratham-ai.
 
 [Unit]
-Description=Pratham AI voice agent (Deepgram Flux + GPT-5.6 Luna + ElevenLabs)
+Description=Pratham AI voice agent (Deepgram Flux + GPT-6 Luna + ElevenLabs)
 After=network-online.target
 Wants=network-online.target
 

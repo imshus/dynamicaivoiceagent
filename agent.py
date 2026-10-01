@@ -1,7 +1,7 @@
 """Dynamic AI voice agent — the engine.
 
     browser mic ──16 kHz PCM──▶ VoiceSession ──▶ Deepgram Flux   (speech → text, turn-taking)
-                                             └─▶ GPT-5.6 Luna    (the reply, streamed)
+                                             └─▶ GPT-6 Luna    (the reply, streamed)
     browser ◀──24 kHz PCM──── VoiceSession ◀─── ElevenLabs       (text → speech, input-streaming)
 
 Nothing is scripted: every reply is written live by the model from prompt.md
@@ -94,8 +94,8 @@ DEEPGRAM_KEYTERMS = [t.strip() for t in os.getenv(
     "dashboard matrices,active account,password manager"
 ).split(",") if t.strip()]
 
-# ── The brain: GPT-5.6 Luna ──────────────────────────────────────────────────
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+# ── The brain: GPT-6 Luna ──────────────────────────────────────────────────
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or None
 # "none" = no thinking tokens, so the first word arrives phone-fast.
 OPENAI_REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "none")
