@@ -137,14 +137,14 @@ KNOWLEDGE_FILE = ("" if not _KNOWLEDGE_RAW.strip() else
                   else os.path.join(HERE, _KNOWLEDGE_RAW))
 
 # ── The voice: one, fixed ────────────────────────────────────────────────────
-# "Kanika - Friendly, Inviting and Smooth", an ElevenLabs professional Hindi
-# voice. Measured on 3 Oct 2026 as the steadiest Hindi voice on flash: pitch
-# within 2.7 semitones and loudness within 2.6 dB across a reply, first audio
-# about 180 ms. There is deliberately no female/male choice: every call, from
-# the page or the app, speaks with this voice. The older ELEVENLABS_VOICE_ID_
-# FEMALE / _MALE and AGENT_NAME_* settings are ignored, so a stale server .env
-# cannot pull in another voice.
-VOICE_ID = (os.getenv("ELEVENLABS_VOICE_ID") or "p9aflnsbBe1o0aDeQa97").strip()
+# "Kanika - Soft, Smooth and Muffled", an ElevenLabs professional Hindi voice,
+# the owner's choice (3 Oct 2026). On flash it measured 3.8-4.2 semitones of
+# pitch wander across a reply; eleven_turbo_v2_5 is the model it is tuned for
+# (2.3 semitones there). There is deliberately no female/male choice: every
+# call, from the page or the app, speaks with this voice. The older
+# ELEVENLABS_VOICE_ID_FEMALE / _MALE and AGENT_NAME_* settings are ignored, so
+# a stale server .env cannot pull in another voice.
+VOICE_ID = (os.getenv("ELEVENLABS_VOICE_ID") or "H6QPv2pQZDcGqLwDTIJQ").strip()
 AGENT_NAME = (os.getenv("AGENT_NAME") or "Kanika").strip()
 
 # ── Text to speech: ElevenLabs input-streaming ───────────────────────────────

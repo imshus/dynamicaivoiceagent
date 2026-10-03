@@ -44,7 +44,7 @@ Waiting for the caller changes three things in the engine:
 - **Silence is now expected.** The caller goes quiet while they tap through their screens, so the MRPscan app's silence hangup moved from ten seconds to forty-five (`PRATHAM_AI_SILENCE_MS`).
 
 `python test_understanding.py walk` plays one whole walkthrough — a question, two nods, and a turn where the caller is lost — and prints it turn by turn.
-- **One voice, always.** "Kanika - Friendly, Inviting and Smooth" (`ELEVENLABS_VOICE_ID`), chosen on 3 Oct 2026 as the steadiest Hindi voice on flash: pitch within 2.7 semitones and loudness within 2.6 dB across a reply. There is no female/male choice; a `gender` field in a client's start message is accepted and ignored. `AGENT_NAME` is what the agent calls itself.
+- **One voice, always.** "Kanika - Soft, Smooth and Muffled" (`ELEVENLABS_VOICE_ID`), the owner's choice. Measured 3 Oct 2026 on flash: pitch wandered 3.8-4.2 semitones across a reply, loudness about 3 dB; on `eleven_turbo_v2_5`, the model this voice is tuned for, 2.3 semitones. There is no female/male choice; a `gender` field in a client's start message is accepted and ignored. `AGENT_NAME` is what the agent calls itself.
 - `GREETING` in `.env` — the first thing the agent says; `{name}` is filled in. Leave empty for no greeting.
 
 ## Voice: one tone for the whole call
