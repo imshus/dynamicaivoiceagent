@@ -143,7 +143,7 @@ KNOWLEDGE_FILE = ("" if not _KNOWLEDGE_RAW.strip() else
 # appended to the system prompt.
 VOICE_IDS = {
     "female": (os.getenv("ELEVENLABS_VOICE_ID_FEMALE") or os.getenv("ELEVENLABS_VOICE_ID")
-               or "EXAVITQu4vr4xnSDxMaL"),
+               or "p9aflnsbBe1o0aDeQa97"),      # Kanika - Friendly: steadiest Hindi voice on flash
     "male": os.getenv("ELEVENLABS_VOICE_ID_MALE") or "onwK4e9ZLuTAKqWW03F9",
 }
 AGENT_NAMES = {"female": os.getenv("AGENT_NAME_FEMALE", "Priya").strip(),
