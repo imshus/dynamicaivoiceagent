@@ -156,7 +156,7 @@ ELEVENLABS_STABILITY = _env_float("ELEVENLABS_STABILITY", 1.0)
 ELEVENLABS_SIMILARITY = _env_float("ELEVENLABS_SIMILARITY", 0.85)
 ELEVENLABS_STYLE = _env_float("ELEVENLABS_STYLE", 0.0)
 ELEVENLABS_SPEAKER_BOOST = _env_bool("ELEVENLABS_SPEAKER_BOOST", False)
-TTS_SPEED = _env_float("TTS_SPEED", 1.0)
+TTS_SPEED = _env_float("TTS_SPEED", 1.05)   # 1.0 was heard as too slow
 # Generation pacing inside the one stream. Text accumulates until the schedule
 # threshold is reached OR we flush. Flushing at every sentence end keeps the
 # first audio of each reply fast; set false to let only the schedule (and the

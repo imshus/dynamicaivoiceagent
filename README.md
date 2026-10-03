@@ -50,7 +50,7 @@ Waiting for the caller changes three things in the engine:
 ## Voice: one tone for the whole call
 
 - **One ElevenLabs stream per call.** The greeting and every reply are text appended to the same input-streaming generation, kept alive through silences. A fresh generation per reply is what makes the voice come back on a slightly different tone, pace or level; one stream cannot. If the stream ever drops mid-call the log says so at WARNING level, because the next reply is then a new generation.
-- `stability=1.0`, `style=0`, speaker boost off, `speed=1.0` fixed.
+- `stability=1.0`, `style=0`, speaker boost off, `speed=1.05` fixed (1.0 was heard as too slow; chosen by ear on 3 Oct 2026).
 - Exclamation marks are turned into full stops before speech ("Hello!" is what makes the voice jump bright and then settle), and the prompt asks for a calm, even tone.
 - On barge-in, audio for the cancelled text is dropped by character position (ElevenLabs' alignment data), so the same stream carries straight on with the next reply.
 
