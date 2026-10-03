@@ -44,8 +44,8 @@ Waiting for the caller changes three things in the engine:
 - **Silence is now expected.** The caller goes quiet while they tap through their screens, so the MRPscan app's silence hangup moved from ten seconds to forty-five (`PRATHAM_AI_SILENCE_MS`).
 
 `python test_understanding.py walk` plays one whole walkthrough — a question, two nods, and a turn where the caller is lost — and prints it turn by turn.
-- **Female / Male** switch on the page — picks the voice (`ELEVENLABS_VOICE_ID_FEMALE` / `_MALE`), the name (`AGENT_NAME_*`) and the greeting, and tells the model which gender it speaks as (Hindi verbs are gendered, so voice and words must agree).
-- `GREETING` in `.env` — the first thing the agent says; `{name}` is filled in. `GREETING_FEMALE` / `GREETING_MALE` override it per gender. Leave empty for no greeting.
+- **One voice, always.** "Kanika - Friendly, Inviting and Smooth" (`ELEVENLABS_VOICE_ID`), chosen on 3 Oct 2026 as the steadiest Hindi voice on flash: pitch within 2.7 semitones and loudness within 2.6 dB across a reply. There is no female/male choice; a `gender` field in a client's start message is accepted and ignored. `AGENT_NAME` is what the agent calls itself.
+- `GREETING` in `.env` — the first thing the agent says; `{name}` is filled in. Leave empty for no greeting.
 
 ## Voice: one tone for the whole call
 
@@ -58,12 +58,12 @@ Waiting for the caller changes three things in the engine:
 
 - Public URL: **https://prathamai.mrpscan.com** (`PRATHAM_AI_URL` in `.env`)
 - Socket: **wss://prathamai.mrpscan.com/ws**
-- `GET /prompt` returns the default instructions, gender, names and `socket_url`; `GET /health` returns `{"status":"ok"}`.
+- `GET /prompt` returns the default instructions, the agent's name and `socket_url`; `GET /health` returns `{"status":"ok"}`.
 
 Any client can drive a call over that socket:
 
-1. Open the socket and send `{"type": "start", "instructions": "<optional, replaces prompt.md>", "gender": "female" | "male"}`.
-2. The server answers `{"type": "ready", "sample_rate": 24000, "gender": ..., "name": ...}` and speaks the greeting.
+1. Open the socket and send `{"type": "start", "instructions": "<optional, replaces prompt.md>"}`.
+2. The server answers `{"type": "ready", "sample_rate": 24000, "name": "Kanika"}` and speaks the greeting.
 3. Send the microphone as **binary frames: 16 kHz, mono, 16-bit little-endian PCM** (20–50 ms per frame works well).
 4. Receive **binary frames: 24 kHz, mono, 16-bit PCM** to play back, plus JSON text frames: `user` (what was heard), `agent` (`text`, `final`, `interrupted`), `retract` (drop the last question), `clear` (stop playback now), `error`.
 5. Send `{"type": "interrupt", "reason": "<optional>"}` the moment your own user starts talking over the agent: the reply is cancelled, its unheard text retracted and queued audio dropped — the same path Deepgram's `StartOfTurn` takes. A phone hears the agent through its own speaker, so the client knows first and waiting for the turn event costs a beat.

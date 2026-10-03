@@ -136,21 +136,16 @@ KNOWLEDGE_FILE = ("" if not _KNOWLEDGE_RAW.strip() else
                   _KNOWLEDGE_RAW if os.path.isabs(_KNOWLEDGE_RAW)
                   else os.path.join(HERE, _KNOWLEDGE_RAW))
 
-# ── Agent gender: the voice and the model's own grammar must agree ───────────
-# Hindi verbs carry the speaker's gender ("बोल रही हूँ" / "बोल रहा हूँ"), so a
-# male voice reading feminine text sounds wrong. The page picks female or male
-# per call; that choice selects the voice, the name, the greeting, and one line
-# appended to the system prompt.
-VOICE_IDS = {
-    "female": (os.getenv("ELEVENLABS_VOICE_ID_FEMALE") or os.getenv("ELEVENLABS_VOICE_ID")
-               or "p9aflnsbBe1o0aDeQa97"),      # Kanika - Friendly: steadiest Hindi voice on flash
-    "male": os.getenv("ELEVENLABS_VOICE_ID_MALE") or "onwK4e9ZLuTAKqWW03F9",
-}
-AGENT_NAMES = {"female": os.getenv("AGENT_NAME_FEMALE", "Priya").strip(),
-               "male": os.getenv("AGENT_NAME_MALE", "Arjun").strip()}
-DEFAULT_GENDER = os.getenv("AGENT_GENDER", "female").strip().lower()
-if DEFAULT_GENDER not in VOICE_IDS:
-    DEFAULT_GENDER = "female"
+# ── The voice: one, fixed ────────────────────────────────────────────────────
+# "Kanika - Friendly, Inviting and Smooth", an ElevenLabs professional Hindi
+# voice. Measured on 3 Oct 2026 as the steadiest Hindi voice on flash: pitch
+# within 2.7 semitones and loudness within 2.6 dB across a reply, first audio
+# about 180 ms. There is deliberately no female/male choice: every call, from
+# the page or the app, speaks with this voice. The older ELEVENLABS_VOICE_ID_
+# FEMALE / _MALE and AGENT_NAME_* settings are ignored, so a stale server .env
+# cannot pull in another voice.
+VOICE_ID = (os.getenv("ELEVENLABS_VOICE_ID") or "p9aflnsbBe1o0aDeQa97").strip()
+AGENT_NAME = (os.getenv("AGENT_NAME") or "Kanika").strip()
 
 # ── Text to speech: ElevenLabs input-streaming ───────────────────────────────
 ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
@@ -184,18 +179,16 @@ BARGE_IN_ECHO_OVERLAP = _env_float("BARGE_IN_ECHO_OVERLAP", 0.6)
 # least this many words the agent did NOT say before it counts as the caller
 # cutting in — a fragment of the agent's own sentence carries none.
 BARGE_IN_MIN_NEW_WORDS = _env_int("BARGE_IN_MIN_NEW_WORDS", 2)
-# GREETING may use {name}; GREETING_FEMALE / GREETING_MALE override it per
-# gender (a Hindi greeting needs that, since its verbs are gendered too).
+# GREETING may use {name}. Empty = no greeting.
 GREETING = os.getenv("GREETING", "").strip()
-GREETINGS = {g: (os.getenv(f"GREETING_{g.upper()}") or GREETING).strip() for g in VOICE_IDS}
 
 
-def gender_line(gender: str) -> str:
-    """The one line that tells the model who it is speaking as."""
-    who, forms = ("a woman", "feminine") if gender == "female" else ("a man", "masculine")
-    return (f"Your name is {AGENT_NAMES[gender]}. You are {who}: in Hindi and Hinglish use "
-            f"{forms} forms when speaking about yourself, and address the caller with the "
-            f"forms that match how they speak.")
+def identity_line() -> str:
+    """The one line that tells the model who it is speaking as. The voice is a
+    woman's, and Hindi verbs carry the speaker's gender, so the words must agree."""
+    return (f"Your name is {AGENT_NAME}. You are a woman: in Hindi and Hinglish use "
+            "feminine forms when speaking about yourself, and address the caller with "
+            "the forms that match how they speak.")
 
 
 def _read_file(path: str) -> str:
@@ -221,10 +214,10 @@ def load_knowledge() -> str:
     return _read_file(KNOWLEDGE_FILE)
 
 
-def build_system_prompt(instructions: str | None, gender: str) -> str:
+def build_system_prompt(instructions: str | None) -> str:
     """Persona (the client's own, or prompt.md), then who the agent is, then
     everything it knows."""
-    parts = [(instructions or "").strip() or load_prompt(), gender_line(gender)]
+    parts = [(instructions or "").strip() or load_prompt(), identity_line()]
     knowledge = load_knowledge()
     if knowledge:
         parts.append(knowledge)
@@ -375,11 +368,11 @@ class VoiceSession:
                  instructions: str | None = None, gender: str | None = None):
         self._send_audio = send_audio
         self._send_json = send_json
-        g = (gender or "").strip().lower()
-        self.gender = g if g in VOICE_IDS else DEFAULT_GENDER
-        self.voice_id = VOICE_IDS[self.gender]
-        self.name = AGENT_NAMES[self.gender]
-        self.system_prompt = build_system_prompt(instructions, self.gender)
+        # `gender` is accepted so older clients (the MRPscan app sends it) keep
+        # working, and ignored: there is one voice.
+        self.voice_id = VOICE_ID
+        self.name = AGENT_NAME
+        self.system_prompt = build_system_prompt(instructions)
         self.history: list[dict] = []
         self.active = True
         self.turn_buffer = ""
@@ -409,7 +402,7 @@ class VoiceSession:
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     async def start(self):
-        logger.info("Session start: %s voice %s, name %s", self.gender, self.voice_id, self.name)
+        logger.info("Session start: voice %s (%s)", self.voice_id, self.name)
         self._dg_task = asyncio.create_task(self._deepgram_loop())
         try:
             await self._tts_open()
@@ -417,9 +410,8 @@ class VoiceSession:
             logger.error(f"ElevenLabs stream could not be opened: {e!r} — will retry on the first reply")
         self._tts_keepalive = asyncio.create_task(self._tts_keepalive_loop())
         self._nudge_task = asyncio.create_task(self._nudge_loop())
-        await self._send_json({"type": "ready", "sample_rate": OUTPUT_SAMPLE_RATE,
-                               "gender": self.gender, "name": self.name})
-        greeting = GREETINGS[self.gender].replace("{name}", self.name)
+        await self._send_json({"type": "ready", "sample_rate": OUTPUT_SAMPLE_RATE, "name": self.name})
+        greeting = GREETING.replace("{name}", self.name)
         if greeting:
             self._launch_reply(None, _static_tokens(greeting))
 

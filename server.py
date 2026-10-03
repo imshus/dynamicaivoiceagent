@@ -19,7 +19,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from agent import AGENT_NAMES, DEFAULT_GENDER, VoiceSession, load_prompt
+from agent import AGENT_NAME, VoiceSession, load_prompt
 
 load_dotenv()
 for _stream in (sys.stdout, sys.stderr):      # Hindi transcripts in the Windows console
@@ -56,7 +56,7 @@ async def health():
 
 @app.get("/prompt")
 async def prompt():
-    return {"prompt": load_prompt(), "gender": DEFAULT_GENDER, "names": AGENT_NAMES,
+    return {"prompt": load_prompt(), "name": AGENT_NAME,
             "public_url": PUBLIC_URL, "socket_url": SOCKET_URL}
 
 
@@ -107,7 +107,7 @@ async def talk(ws: WebSocket):
                 continue
             kind = ctrl.get("type")
             if kind == "start" and session is None:
-                session = VoiceSession(send_audio, send_json, ctrl.get("instructions"), ctrl.get("gender"))
+                session = VoiceSession(send_audio, send_json, ctrl.get("instructions"))
                 await session.start()
             elif kind == "interrupt":
                 # The client heard its user start talking over the agent.

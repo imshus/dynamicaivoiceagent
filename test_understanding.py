@@ -119,7 +119,7 @@ async def ask(client, system: str, said: str) -> str:
 async def main() -> None:
     only = sys.argv[1].lower() if len(sys.argv) > 1 else ""
     if only == "walk":
-        system = agent.build_system_prompt(None, "female")
+        system = agent.build_system_prompt(None)
         print(f"{agent.OPENAI_MODEL}, reasoning {agent.OPENAI_REASONING_EFFORT} — "
               f"{len(WALK)} turns\n")
         await walkthrough(agent.get_llm(), system)
@@ -129,7 +129,7 @@ async def main() -> None:
         print(f"No cases tagged {only!r}. Tags: {sorted({c[0] for c in CASES})}")
         return
 
-    system = agent.build_system_prompt(None, "female")
+    system = agent.build_system_prompt(None)
     print(f"{agent.OPENAI_MODEL}, reasoning {agent.OPENAI_REASONING_EFFORT}, "
           f"system prompt {len(system):,} chars — {len(cases)} calls\n")
 

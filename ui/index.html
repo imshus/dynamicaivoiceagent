@@ -36,11 +36,6 @@
   #call:hover { transform: translateY(-1px); }
   #call.live { background: linear-gradient(160deg, #ff6b6b, #dc2626); box-shadow: 0 8px 30px rgba(239,68,68,.3); }
   #call:disabled { opacity: .6; cursor: default; }
-  .gender { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
-  .gender label { margin: 0; font-size: 13px; color: var(--muted); padding: 8px 14px; border-radius: 9px; cursor: pointer; user-select: none; }
-  .gender label:has(input:checked) { background: var(--user); color: var(--text); }
-  .gender label:has(input:disabled) { cursor: default; opacity: .7; }
-  .gender input { display: none; }
   #status { font-size: 14px; color: var(--muted); }
   #status.listening { color: #7ee0a1; }
   #status.speaking { color: var(--gold); }
@@ -71,10 +66,6 @@
 
   <div class="controls">
     <button id="call">Start call</button>
-    <div class="gender" title="Agent voice">
-      <label><input type="radio" name="gender" value="female" checked><span id="g-female">Female</span></label>
-      <label><input type="radio" name="gender" value="male"><span id="g-male">Male</span></label>
-    </div>
     <div id="status">Ready</div>
   </div>
 
@@ -102,17 +93,10 @@ let SOCKET_URL = "";            // the deployed agent's socket (PRATHAM_AI_URL/w
 fetch("/prompt").then(r => r.json()).then(d => {
   SOCKET_URL = d.socket_url || "";
   if (!promptEl.value) promptEl.value = d.prompt || "";
-  const r = document.querySelector('input[name=gender][value="' + d.gender + '"]');
-  if (r) r.checked = true;
-  if (d.names) {
-    document.getElementById("g-female").textContent = "Female · " + d.names.female;
-    document.getElementById("g-male").textContent = "Male · " + d.names.male;
-  }
+  if (d.name && statusEl.textContent === "Ready") statusEl.textContent = "Ready · " + d.name;
 }).catch(() => {});
 
 function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
-function genderOf() { const r = document.querySelector("input[name=gender]:checked"); return r ? r.value : "female"; }
-function lockGender(on) { document.querySelectorAll("input[name=gender]").forEach(r => r.disabled = on); }
 
 // ── transcript ──────────────────────────────────────────────────────────────
 function clearEmpty() { const e = transcriptEl.querySelector(".empty"); if (e) e.remove(); }
@@ -285,8 +269,7 @@ async function start() {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     opened = true; starting = false; running = true;
-    ws.send(JSON.stringify({ type: "start", instructions: promptEl.value, gender: genderOf() }));
-    lockGender(true);
+    ws.send(JSON.stringify({ type: "start", instructions: promptEl.value }));
     sourceNode = audioCtx.createMediaStreamSource(micStream);
     processor = audioCtx.createScriptProcessor(2048, 1, 1);
     silentGain = audioCtx.createGain(); silentGain.gain.value = 0;
@@ -330,7 +313,6 @@ function teardown() {
   ws = null; audioCtx = null; micStream = null; processor = null; sourceNode = null; silentGain = null;
   callBtn.classList.remove("live"); callBtn.textContent = "Start call"; callBtn.disabled = false;
   promptEl.disabled = false;
-  lockGender(false);
 }
 
 function stop() {
