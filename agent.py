@@ -153,7 +153,12 @@ if DEFAULT_GENDER not in VOICE_IDS:
     DEFAULT_GENDER = "female"
 
 # ── Text to speech: ElevenLabs input-streaming ───────────────────────────────
-ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_turbo_v2_5")
+# ElevenLabs only checks the model when it generates, so a removed model shows
+# up as `error: model_not_found` on the stream, mid-call. When that happens the
+# agent switches every stream from then on to this model, and says so in the log.
+ELEVENLABS_FALLBACK_MODEL = os.getenv("ELEVENLABS_FALLBACK_MODEL", "eleven_flash_v2_5").strip()
+_tts_model = {"id": ELEVENLABS_MODEL}          # the model in use right now, process-wide
 OUTPUT_SAMPLE_RATE = _env_int("OUTPUT_SAMPLE_RATE", 24000)   # pcm_16000 | pcm_22050 | pcm_24000
 # Constant delivery: stability 1.0 = one steady pitch and loudness; style 0 and
 # speaker boost off — both make the level drift; speed fixed for the whole call.
@@ -167,7 +172,7 @@ TTS_SPEED = _env_float("TTS_SPEED", 1.0)
 # first audio of each reply fast; set false to let only the schedule (and the
 # end of the reply) trigger generation — larger pieces, a little more wait.
 TTS_CHUNK_SCHEDULE = [50, 80, 120, 150]
-TTS_FLUSH_EVERY_SENTENCE = _env_bool("TTS_FLUSH_EVERY_SENTENCE", True)
+TTS_FLUSH_EVERY_SENTENCE = _env_bool("TTS_FLUSH_EVERY_SENTENCE", False)
 TTS_INACTIVITY_TIMEOUT = 180        # the most ElevenLabs allows
 TTS_KEEPALIVE_SECONDS = 15          # a space now and then keeps the stream (and the voice) alive
 TTS_IDLE_RESYNC_SECONDS = 1.5       # after this much silence from ElevenLabs, everything sent counts as voiced
@@ -246,7 +251,7 @@ def deepgram_url() -> str:
 
 def tts_url(voice_id: str) -> str:
     return (f"wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input"
-            f"?model_id={ELEVENLABS_MODEL}&output_format=pcm_{OUTPUT_SAMPLE_RATE}"
+            f"?model_id={_tts_model['id']}&output_format=pcm_{OUTPUT_SAMPLE_RATE}"
             f"&inactivity_timeout={TTS_INACTIVITY_TIMEOUT}")
 
 
@@ -462,6 +467,14 @@ class VoiceSession:
                 await ws.send(json.dumps({"text": ""}))      # end of stream
             except Exception:
                 pass
+            # Let ElevenLabs answer with isFinal and close its side first.
+            # Closing on top of it left every hangup logged as "sent 1000;
+            # no close frame received" — a half-finished handshake, not a fault.
+            if self._tts_rx is not None and not self._tts_rx.done():
+                try:
+                    await asyncio.wait({self._tts_rx}, timeout=2)
+                except Exception:
+                    pass
             try:
                 await ws.close()
             except Exception:
@@ -917,7 +930,11 @@ class VoiceSession:
         self._sent_ns = self._voiced_ns = self._discard_until_ns = 0
         self._tts_last_send = self._tts_last_audio = time.monotonic()
         self._tts_rx = asyncio.create_task(self._tts_receive(ws))
-        logger.info("ElevenLabs stream open (voice %s) — stays open for the whole call", self.voice_id)
+        if self._reply_state is not None:
+            # Reopened mid-reply: the rest of this reply counts from the new stream's zero.
+            self._reply_state.ns_start = 0
+        logger.info("ElevenLabs stream open (voice %s, %s) — stays open for the whole call",
+                    self.voice_id, _tts_model["id"])
 
     async def _tts_send(self, text: str, flush: bool = False):
         async with self._tts_lock:
@@ -946,12 +963,22 @@ class VoiceSession:
                                              data.get("alignment") or data.get("normalizedAlignment"))
                 elif data.get("error") or data.get("message"):
                     logger.error(f"ElevenLabs: {data}")
+                    if data.get("error") == "model_not_found" and _tts_model["id"] != ELEVENLABS_FALLBACK_MODEL:
+                        logger.warning(f"ElevenLabs no longer offers {_tts_model['id']} — switching every "
+                                       f"stream to {ELEVENLABS_FALLBACK_MODEL}; the sentence just sent is lost")
+                        _tts_model["id"] = ELEVENLABS_FALLBACK_MODEL
                 if data.get("isFinal"):
                     break
         except asyncio.CancelledError:
             raise
         except websockets.exceptions.ConnectionClosed as e:
-            logger.info(f"ElevenLabs stream closed: {e}")
+            if self.active:
+                # Mid-call. The next reply reopens the stream, but that is a
+                # fresh generation: the one place tone and pace can shift.
+                logger.warning(f"ElevenLabs stream dropped mid-call ({e}) — "
+                               "the next reply starts a new generation")
+            else:
+                logger.debug(f"ElevenLabs stream closed at hangup: {e}")
         except Exception as e:
             logger.error(f"ElevenLabs receiver error: {e!r}")
         finally:
