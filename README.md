@@ -17,7 +17,7 @@ Open **http://localhost:8100**, click **Start call**, and talk. Use headphones.
 ## Change the agent
 
 - `prompt.md` — the persona. Edits apply on the next call, no restart.
-- `faq.md` — **what the agent knows**: the MRPscan FAQ, every question and answer in English and Hindi. It is appended to the system prompt on every call, so answers come from approved text instead of invention. Add a question by adding it to this file; the next caller gets it, no restart and no code change. Set `KNOWLEDGE_FILE` to another file, or empty, to change or drop it.
+- `faq.json` — **what the agent knows**: the MRPscan app's own FAQ export, 51 questions in 12 sections, every question and answer in English and Hindi. It is rendered into the system prompt on every call, so answers come from approved text instead of invention. To update it, replace the file with the app's current FAQ JSON; the next caller gets it, no restart and no code change. Set `KNOWLEDGE_FILE` to another file (`.json` is rendered, anything else is used as written), or empty, to change or drop it.
 - The textarea on the page overrides `prompt.md` for that one call — paste a business description and talk to that agent. The FAQ still gets attached; empty `KNOWLEDGE_FILE` for an agent that should not know it.
 
 ## Understanding the caller
@@ -26,7 +26,7 @@ A jeweller does not ask the FAQ's question. They say "bhai rate kahan se aa raha
 
 1. **Deepgram keyterms** (`DEEPGRAM_KEYTERMS`) bias the words this helpline turns on — colorstone, karat, RTGS, tunch, packet code — so Flux stops hearing "cash tone" for "colorstone". A word that arrives wrong can never be understood, so this comes before any prompt wording.
 2. **`prompt.md` asks for intent, not matching**: work out what the caller wants, answer with the note that solves it, and ask one short question when two notes genuinely both fit.
-3. **`OPENAI_REASONING_EFFORT=low`** gives the model a moment to pick the right note out of thirty. On a turn where Flux fires `EagerEndOfTurn`, that thinking happens while the caller is still finishing, so it usually costs nothing. Set it back to `none` if you want the last few milliseconds.
+3. **`OPENAI_REASONING_EFFORT=low`** gives the model a moment to pick the right note out of fifty-one. On a turn where Flux fires `EagerEndOfTurn`, that thinking happens while the caller is still finishing, so it usually costs nothing. Set it back to `none` if you want the last few milliseconds.
 
 `python test_understanding.py` reads twenty-one lines the way a jeweller really says them, past each one to the model, and prints what came back next to the note that should have answered it. It spends only your OpenAI key. Add a tag to run one area: `python test_understanding.py employee`.
 

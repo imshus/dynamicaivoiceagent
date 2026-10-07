@@ -91,7 +91,8 @@ DEEPGRAM_KEYTERMS = [t.strip() for t in os.getenv(
     "diamond,packet code,sieve,clarity,colorstone,stone rate,"
     "item code,masters,dashboard settings,scanner,tag,"
     "e-invoice,GST,wishlist,employee manager,set permission,"
-    "dashboard matrices,active account,password manager"
+    "dashboard matrices,active account,MPIN,OTP,Razorpay,credits,"
+    "recharge,subscription,wastage code,Scan Review,retail rate"
 ).split(",") if t.strip()]
 
 # ── The brain: GPT-6 Luna ──────────────────────────────────────────────────
@@ -131,7 +132,7 @@ DEFAULT_PROMPT = ("You are a friendly voice assistant on a live call. Reply the 
 # The file is read fresh per call: edit it and the next caller gets the change.
 # Point KNOWLEDGE_FILE at another file, or leave it empty, for an agent that
 # should not know any of this.
-_KNOWLEDGE_RAW = os.getenv("KNOWLEDGE_FILE", "faq.md")
+_KNOWLEDGE_RAW = os.getenv("KNOWLEDGE_FILE", "faq.json")
 KNOWLEDGE_FILE = ("" if not _KNOWLEDGE_RAW.strip() else
                   _KNOWLEDGE_RAW if os.path.isabs(_KNOWLEDGE_RAW)
                   else os.path.join(HERE, _KNOWLEDGE_RAW))
@@ -209,9 +210,41 @@ def load_prompt() -> str:
     return _read_file(PROMPT_FILE) or DEFAULT_PROMPT
 
 
+def render_faq(data: dict) -> str:
+    """The app's FAQ JSON ({faqs: [{title, items: [{question, answer}]}]},
+    each text in en and hi) as the notes the model reads: section headings,
+    every question and answer in both languages. The ☰ menu glyph is dropped
+    so it can never reach the voice."""
+    lines = [
+        "# MRPscan — what Pratham AI knows", "",
+        "Every question below is written twice, English then Hindi, and so is every",
+        "answer. Use whichever matches the caller.", "",
+        "Menu paths are written with arrows for brevity. Never say the arrow: speak the",
+        "steps as words, for example \"Settings, then Masters, then Gold\".", "",
+    ]
+    for section in data.get("faqs") or []:
+        title = section.get("title") or {}
+        en, hi = str(title.get("en", "")).strip(), str(title.get("hi", "")).strip()
+        lines += [f"## {en} — {hi}" if hi else f"## {en}", ""]
+        for item in section.get("items") or []:
+            q, a = item.get("question") or {}, item.get("answer") or {}
+            lines += [f"**{str(q.get('en', '')).strip()}**", str(q.get("hi", "")).strip(), "",
+                      str(a.get("en", "")).strip(), str(a.get("hi", "")).strip(), ""]
+    return "\n".join(lines).replace("☰ ", "").replace("☰", "").strip()
+
+
 def load_knowledge() -> str:
-    """Read the FAQ fresh, for the same reason. Empty when there is no file."""
-    return _read_file(KNOWLEDGE_FILE)
+    """Read the FAQ fresh, for the same reason. Empty when there is no file.
+    A .json file is the app's own FAQ export and is rendered; anything else
+    is used as written."""
+    raw = _read_file(KNOWLEDGE_FILE)
+    if raw and KNOWLEDGE_FILE.lower().endswith(".json"):
+        try:
+            return render_faq(json.loads(raw))
+        except Exception as e:
+            logger.error(f"{KNOWLEDGE_FILE} is not valid FAQ JSON ({e!r}) — the agent knows nothing this call")
+            return ""
+    return raw
 
 
 def build_system_prompt(instructions: str | None) -> str:
@@ -282,7 +315,7 @@ def llm_params() -> dict:
 # of a reply a clause boundary is enough, which is what cuts time-to-audio.
 _SENT_RE = re.compile(r'^(.*?[.!?।]["\')\]]*)\s+', re.S)
 _CLAUSE_RE = re.compile(r'^(.*?[,;:—])\s+', re.S)
-_MARKUP_RE = re.compile(r'[*#`]+')
+_MARKUP_RE = re.compile(r'[*#`☰]+')
 _ARROW_RE = re.compile(r'\s*(?:→|->|➜|»)\s*')
 
 
