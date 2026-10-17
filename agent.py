@@ -145,7 +145,7 @@ KNOWLEDGE_FILE = ("" if not _KNOWLEDGE_RAW.strip() else
 # call, from the page or the app, speaks with this voice. The older
 # ELEVENLABS_VOICE_ID_FEMALE / _MALE and AGENT_NAME_* settings are ignored, so
 # a stale server .env cannot pull in another voice.
-VOICE_ID = (os.getenv("ELEVENLABS_VOICE_ID") or "H6QPv2pQZDcGqLwDTIJQ").strip()
+VOICE_ID = (os.getenv("ELEVENLABS_VOICE_ID") or "xccfcojYYGnqTTxwZEDU").strip()
 AGENT_NAME = (os.getenv("AGENT_NAME") or "Kanika").strip()
 
 # ── Text to speech: ElevenLabs input-streaming ───────────────────────────────
