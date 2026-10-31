@@ -210,11 +210,26 @@ def load_prompt() -> str:
     return _read_file(PROMPT_FILE) or DEFAULT_PROMPT
 
 
-def render_faq(data: dict) -> str:
+# The FAQ section about what MRPscan costs and how to pay. Left out for a
+# caller on the iPhone app, which sells nothing (App Store rule 3.1.3(f)).
+BUYING_SECTION_IDS = {"pricing-payment"}
+
+# Said on top of the persona for a caller on the iPhone app.
+IOS_RULE = (
+    "This caller is using MRPscan on an iPhone, where the app sells nothing. Never say what "
+    "MRPscan, a licence or credits cost, never explain how to buy, pay, recharge or upgrade, and "
+    "never point the caller to a website, an email, a phone number or another app to buy. If they "
+    "ask about buying or paying, say only that this cannot be done in the iPhone app, and offer to "
+    "help with anything else."
+)
+
+
+def render_faq(data: dict, skip_ids: set[str] | None = None) -> str:
     """The app's FAQ JSON ({faqs: [{title, items: [{question, answer}]}]},
     each text in en and hi) as the notes the model reads: section headings,
     every question and answer in both languages. The ☰ menu glyph is dropped
-    so it can never reach the voice."""
+    so it can never reach the voice. Sections whose id is in `skip_ids` are
+    left out."""
     lines = [
         "# MRPscan — what Pratham AI knows", "",
         "Every question below is written twice, English then Hindi, and so is every",
@@ -223,6 +238,8 @@ def render_faq(data: dict) -> str:
         "steps as words, for example \"Settings, then Masters, then Gold\".", "",
     ]
     for section in data.get("faqs") or []:
+        if skip_ids and section.get("id") in skip_ids:
+            continue
         title = section.get("title") or {}
         en, hi = str(title.get("en", "")).strip(), str(title.get("hi", "")).strip()
         lines += [f"## {en} — {hi}" if hi else f"## {en}", ""]
@@ -233,25 +250,29 @@ def render_faq(data: dict) -> str:
     return "\n".join(lines).replace("☰ ", "").replace("☰", "").strip()
 
 
-def load_knowledge() -> str:
+def load_knowledge(skip_ids: set[str] | None = None) -> str:
     """Read the FAQ fresh, for the same reason. Empty when there is no file.
     A .json file is the app's own FAQ export and is rendered; anything else
     is used as written."""
     raw = _read_file(KNOWLEDGE_FILE)
     if raw and KNOWLEDGE_FILE.lower().endswith(".json"):
         try:
-            return render_faq(json.loads(raw))
+            return render_faq(json.loads(raw), skip_ids)
         except Exception as e:
             logger.error(f"{KNOWLEDGE_FILE} is not valid FAQ JSON ({e!r}) — the agent knows nothing this call")
             return ""
     return raw
 
 
-def build_system_prompt(instructions: str | None) -> str:
+def build_system_prompt(instructions: str | None, platform: str | None = None) -> str:
     """Persona (the client's own, or prompt.md), then who the agent is, then
-    everything it knows."""
+    everything it knows. A caller on the iPhone app (platform "ios") gets the
+    rule against buying talk, and no notes about prices or paying."""
+    ios = str(platform or "").strip().lower() == "ios"
     parts = [(instructions or "").strip() or load_prompt(), identity_line()]
-    knowledge = load_knowledge()
+    if ios:
+        parts.append(IOS_RULE)
+    knowledge = load_knowledge(BUYING_SECTION_IDS if ios else None)
     if knowledge:
         parts.append(knowledge)
     return "\n\n".join(parts)
@@ -398,14 +419,15 @@ class VoiceSession:
 
     def __init__(self, send_audio: Callable[[bytes], Awaitable[None]],
                  send_json: Callable[[dict], Awaitable[None]],
-                 instructions: str | None = None, gender: str | None = None):
+                 instructions: str | None = None, gender: str | None = None,
+                 platform: str | None = None):
         self._send_audio = send_audio
         self._send_json = send_json
         # `gender` is accepted so older clients (the MRPscan app sends it) keep
         # working, and ignored: there is one voice.
         self.voice_id = VOICE_ID
         self.name = AGENT_NAME
-        self.system_prompt = build_system_prompt(instructions)
+        self.system_prompt = build_system_prompt(instructions, platform)
         self.history: list[dict] = []
         self.active = True
         self.turn_buffer = ""

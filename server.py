@@ -107,7 +107,8 @@ async def talk(ws: WebSocket):
                 continue
             kind = ctrl.get("type")
             if kind == "start" and session is None:
-                session = VoiceSession(send_audio, send_json, ctrl.get("instructions"))
+                session = VoiceSession(send_audio, send_json, ctrl.get("instructions"),
+                                       platform=ctrl.get("platform"))
                 await session.start()
             elif kind == "interrupt":
                 # The client heard its user start talking over the agent.
