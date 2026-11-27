@@ -3,137 +3,180 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dynamic Voice Agent</title>
+<title>MRPscan Software — Talk to the Agent</title>
 <style>
   :root {
-    --bg: #0f1220; --panel: #181c30; --line: #262b45; --text: #e8eaf2; --muted: #9aa0b4;
-    --user: #2a3350; --agent: #1f2a3a; --green: #22c55e; --red: #ef4444; --gold: #f4c542;
+    --bg: #0f1220; --accent: #f4c542; --text: #e8eaf2; --muted: #9aa0b4;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; padding: 24px 16px 40px;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Devanagari", "Nirmala UI", sans-serif;
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Devanagari", "Nirmala UI", sans-serif;
     background: radial-gradient(1200px 600px at 50% -10%, #20264a, var(--bg));
-    color: var(--text); display: flex; flex-direction: column; align-items: center;
+    color: var(--text); min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px;
   }
-  main { width: 100%; max-width: 720px; display: flex; flex-direction: column; gap: 16px; }
-  h1 { font-size: 20px; font-weight: 650; margin: 0; }
-  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  textarea {
-    width: 100%; min-height: 110px; resize: vertical; padding: 12px 14px; border-radius: 12px;
-    border: 1px solid var(--line); background: var(--panel); color: var(--text);
-    font: 14px/1.5 inherit; outline: none;
+  h1 { font-size: 20px; font-weight: 650; margin: 8px 0 2px; letter-spacing: .2px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; text-align: center; }
+  .mic-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  #mic {
+    width: 108px; height: 108px; border-radius: 28px; border: none; cursor: pointer;
+    background: linear-gradient(160deg, #34d17a, #16a34a); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 40px rgba(34,197,94,.3);
+    transition: transform .12s ease, box-shadow .2s ease, background .2s ease;
+    position: relative;
   }
-  textarea:focus { border-color: #4f5b8a; }
-  textarea:disabled { opacity: .6; }
-  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
-  .controls { display: flex; align-items: center; gap: 16px; }
-  #call {
-    border: none; border-radius: 14px; padding: 14px 26px; font: 600 15px inherit; color: #fff;
-    background: linear-gradient(160deg, #34d17a, #16a34a); cursor: pointer;
-    box-shadow: 0 8px 30px rgba(34,197,94,.3); transition: transform .12s ease;
+  #mic svg { width: 46px; height: 46px; display: block; }
+  #mic:hover { transform: translateY(-2px); }
+  #mic.live {
+    background: linear-gradient(160deg, #ff6b6b, #e0453e);
+    box-shadow: 0 0 0 0 rgba(255,107,107,.5); animation: pulse 1.6s infinite;
   }
-  #call:hover { transform: translateY(-1px); }
-  #call.live { background: linear-gradient(160deg, #ff6b6b, #dc2626); box-shadow: 0 8px 30px rgba(239,68,68,.3); }
-  #call:disabled { opacity: .6; cursor: default; }
-  #status { font-size: 14px; color: var(--muted); }
+  #mic:disabled { opacity: .6; cursor: default; animation: none; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255,107,107,.45); }
+    70%  { box-shadow: 0 0 0 24px rgba(255,107,107,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
+  }
+  #status { font-size: 14px; color: var(--muted); min-height: 20px; text-align: center; max-width: 420px; }
+  #status.speaking { color: var(--accent); }
   #status.listening { color: #7ee0a1; }
-  #status.speaking { color: var(--gold); }
   #status.error { color: #ff8a8a; }
-  #transcript {
-    display: flex; flex-direction: column; gap: 10px; min-height: 120px; padding: 14px;
-    border-radius: 14px; background: var(--panel); border: 1px solid var(--line);
-  }
-  .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; }
-  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
-  .msg.agent { align-self: flex-start; background: var(--agent); border-bottom-left-radius: 4px; }
-  .msg.agent.partial { opacity: .8; }
-  .msg.agent.interrupted::after { content: " …"; color: var(--muted); }
-  .empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto; }
 </style>
 </head>
 <body>
-<main>
-  <div>
-    <h1>Dynamic Voice Agent</h1>
-    <div class="sub">Deepgram Flux · GPT-5.6 Luna · ElevenLabs — use headphones</div>
-  </div>
+  <h1>💎 MRPscan Software</h1>
+  <div class="sub">Talk to the AI assistant using your microphone</div>
 
-  <div>
-    <label for="instructions">Agent instructions (from prompt.md; edit before the call)</label>
-    <textarea id="instructions" spellcheck="false"></textarea>
+  <div class="mic-wrap">
+    <button id="mic" aria-label="Start call"></button>
+    <div id="status">Connecting…</div>
   </div>
-
-  <div class="controls">
-    <button id="call">Start call</button>
-    <div id="status">Ready</div>
-  </div>
-
-  <div id="transcript"><div class="empty">The conversation will appear here.</div></div>
-</main>
 
 <script>
 "use strict";
+// The look and the call flow of the MRPscan Software talk page (aivoiceagentweb
+// ui/talk.html): one call button, a ringback tone until the agent picks up,
+// and the call dialled as soon as the page is opened. The audio is this
+// server's own: 16 kHz linear PCM up to Deepgram Flux, 24 kHz PCM back from
+// ElevenLabs. The agent follows prompt.md, since this page sends no
+// instructions of its own.
 const IN_RATE = 16000;          // what we send to the server (Deepgram)
 let OUT_RATE = 24000;           // what the server sends back (ElevenLabs); confirmed by "ready"
 
-const callBtn = document.getElementById("call");
+const micBtn = document.getElementById("mic");
 const statusEl = document.getElementById("status");
-const promptEl = document.getElementById("instructions");
-const transcriptEl = document.getElementById("transcript");
 
 let ws = null, audioCtx = null, micStream = null, processor = null, sourceNode = null, silentGain = null;
-let running = false, starting = false;
+let running = false;
+// True from the moment a call is being set up until it is live or has failed,
+// so the auto-start and a stray click never dial twice.
+let starting = false;
 let nextPlayTime = 0, idleTimer = null;
 const activeSources = new Set();
 let inBuf = new Float32Array(0), readPos = 0;
-let currentAgentEl = null;
-let SOCKET_URL = "";            // the deployed agent's socket (PRATHAM_AI_URL/ws), from /prompt
 
-fetch("/prompt").then(r => r.json()).then(d => {
-  SOCKET_URL = d.socket_url || "";
-  if (!promptEl.value) promptEl.value = d.prompt || "";
-  if (d.name && statusEl.textContent === "Ready") statusEl.textContent = "Ready · " + d.name;
-}).catch(() => {});
+// Call-button icons: green phone (idle, to call) and red hang-up (live, to end).
+const ICON_CALL =
+  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+  '<path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 ' +
+  '1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 ' +
+  '0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>';
+const ICON_END =
+  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+  '<path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 ' +
+  '1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 ' +
+  '0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 ' +
+  '0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>';
+
+// The deployed agent's socket (PRATHAM_AI_URL/ws), from /prompt. A call waits
+// a moment for it, so a page hosted on another site dials the right server.
+let SOCKET_URL = "";
+const configReady = fetch("/prompt")
+  .then((r) => r.json())
+  .then((d) => { SOCKET_URL = d.socket_url || ""; })
+  .catch(() => {});
 
 function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
 
-// ── transcript ──────────────────────────────────────────────────────────────
-function clearEmpty() { const e = transcriptEl.querySelector(".empty"); if (e) e.remove(); }
-function addBubble(role, text) {
-  clearEmpty();
-  const el = document.createElement("div");
-  el.className = "msg " + role;
-  el.textContent = text;
-  transcriptEl.appendChild(el);
-  transcriptEl.scrollTop = transcriptEl.scrollHeight;
-  return el;
-}
-function onUser(text) { currentAgentEl = null; addBubble("user", text); }
-function onAgent(text, final, interrupted) {
-  if (!currentAgentEl && interrupted) {      // a finished bubble being cut back to what was heard
-    const last = transcriptEl.lastElementChild;
-    if (last && last.classList.contains("agent")) currentAgentEl = last;
-  }
-  if (!currentAgentEl) currentAgentEl = addBubble("agent", "");
-  currentAgentEl.textContent = text;
-  currentAgentEl.classList.toggle("partial", !final);
-  if (interrupted) currentAgentEl.classList.add("interrupted");
-  if (final) { if (!text) currentAgentEl.remove(); currentAgentEl = null; }
-  transcriptEl.scrollTop = transcriptEl.scrollHeight;
-}
-function onRetract() {   // the caller kept talking before hearing anything: drop that question and any reply to it
-  const users = transcriptEl.querySelectorAll(".msg.user");
-  if (users.length) {
-    let el = users[users.length - 1];
-    while (el) { const next = el.nextElementSibling; el.remove(); el = next; }
-  }
-  currentAgentEl = null;
+// ── Ringback ("calling…") tone: 440+480 Hz, 3.5 s on / 2.5 s off ─────────────
+// It plays from the dial until the agent's first audio arrives (the pickup).
+// The agent can answer almost at once, which made the greeting cut in before
+// the call felt like a call, so the phone rings for at least MIN_RING_MS and
+// any audio that arrives earlier is held until then.
+const MIN_RING_MS = 1200;
+let ringOscs = null, ringGain = null, ringTimer = null, ringing = false;
+let ringStartMs = 0, pickupBuffer = [], pickupTimer = null;
+
+function startRingback() {
+  if (!audioCtx || ringing) return;
+  ringing = true;
+  ringStartMs = performance.now();
+  ringGain = audioCtx.createGain();
+  ringGain.gain.value = 0.0001;
+  ringGain.connect(audioCtx.destination);
+  ringOscs = [440, 480].map((f) => {
+    const o = audioCtx.createOscillator();
+    o.type = "sine";
+    o.frequency.value = f;
+    o.connect(ringGain);
+    o.start();
+    return o;
+  });
+  const ring = () => {
+    if (!ringing || !audioCtx) return;
+    // A backgrounded tab (common on mobile) suspends the context; nudge it back.
+    if (audioCtx.state === "suspended") { try { audioCtx.resume(); } catch (e) {} }
+    try {
+      const t = audioCtx.currentTime;
+      ringGain.gain.cancelScheduledValues(t);
+      ringGain.gain.setValueAtTime(0.0001, t);
+      ringGain.gain.exponentialRampToValueAtTime(0.12, t + 0.04);   // ring on
+      ringGain.gain.setValueAtTime(0.12, t + 3.5);
+      ringGain.gain.exponentialRampToValueAtTime(0.0001, t + 3.54); // ring off
+    } catch (e) {}
+    ringTimer = setTimeout(ring, 6000);
+  };
+  ring();
+  setStatus("📞 Calling the agent…");
 }
 
-// ── playback: 24 kHz PCM → context rate, gapless ────────────────────────────
+function stopRingback() {
+  if (!ringing) return;
+  ringing = false;
+  if (ringTimer) { clearTimeout(ringTimer); ringTimer = null; }
+  if (pickupTimer) { clearTimeout(pickupTimer); pickupTimer = null; }
+  try {
+    const t = audioCtx ? audioCtx.currentTime : 0;
+    if (ringGain) { ringGain.gain.cancelScheduledValues(t); ringGain.gain.setValueAtTime(0.0001, t); }
+  } catch (e) {}
+  try { if (ringOscs) ringOscs.forEach((o) => { try { o.stop(); } catch (e) {} }); } catch (e) {}
+  ringOscs = null; ringGain = null;
+}
+
+// The ring has played long enough: silence it and play the audio that came early.
+function flushPickup() {
+  pickupTimer = null;
+  stopRingback();
+  const chunks = pickupBuffer;
+  pickupBuffer = [];
+  for (const c of chunks) playPcm(c);
+}
+
+// ── Playback: 24 kHz PCM → the context's own rate, gapless ──────────────────
+// Built at the context rate rather than handing the browser a 24 kHz buffer:
+// mobile browsers (iOS Safari above all) glitch on mismatched rates.
 function playPcm(int16) {
   if (!audioCtx || !int16.length) return;
+  if (ringing) {
+    const remaining = MIN_RING_MS - (performance.now() - ringStartMs);
+    if (remaining > 0) {
+      pickupBuffer.push(int16);
+      if (!pickupTimer) pickupTimer = setTimeout(flushPickup, remaining);
+      return;
+    }
+    stopRingback();              // rang long enough: pick up now
+  }
   if (audioCtx.state === "suspended") { try { audioCtx.resume(); } catch (e) {} }
   const n = int16.length, outRate = audioCtx.sampleRate, ratio = outRate / OUT_RATE;
   const outLen = Math.max(1, Math.round(n * ratio));
@@ -154,11 +197,12 @@ function playPcm(int16) {
   nextPlayTime += buf.duration;
   activeSources.add(src);
   src.onended = () => activeSources.delete(src);
-  setStatus("Agent speaking…", "speaking");
+  setStatus("🔊 Agent speaking…", "speaking");
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (running) setStatus("Listening…", "listening"); },
+  idleTimer = setTimeout(() => { if (running) setStatus("🎤 Listening…", "listening"); },
                          (nextPlayTime - audioCtx.currentTime) * 1000 + 60);
 }
+
 function clearPlayback() {
   for (const s of activeSources) { try { s.stop(); } catch (e) {} }
   activeSources.clear();
@@ -166,7 +210,7 @@ function clearPlayback() {
   clearTimeout(idleTimer);
 }
 
-// ── capture: mic → 16 kHz int16 ─────────────────────────────────────────────
+// ── Capture: mic → 16 kHz int16 ─────────────────────────────────────────────
 function resampleTo16k(input, inRate) {
   const merged = new Float32Array(inBuf.length + input.length);
   merged.set(inBuf, 0); merged.set(input, inBuf.length);
@@ -181,7 +225,8 @@ function resampleTo16k(input, inRate) {
   inBuf = inBuf.slice(keep); readPos -= keep;
   return out;
 }
-// ── talking over the agent ──────────────────────────────────────────────────
+
+// ── Talking over the agent ──────────────────────────────────────────────────
 // The mic stays open the whole call, so a caller can cut in at any moment.
 // Waiting for Deepgram to call it a turn costs a beat and, on a speakerphone,
 // can be the agent hearing itself; the page knows first. While the agent is
@@ -213,7 +258,7 @@ function interruptAgent() {
   if (!running || !ws || ws.readyState !== WebSocket.OPEN) return;
   clearPlayback();          // the agent stops mid-word, and its echo with it
   echoFloor = 0;
-  setStatus("Listening…", "listening");
+  setStatus("🎤 Listening…", "listening");
   try { ws.send(JSON.stringify({ type: "interrupt", reason: "talked over" })); } catch (e) {}
 }
 
@@ -228,7 +273,7 @@ function onAudio(e) {
   ws.send(pcm.buffer);
 }
 
-// ── call lifecycle ──────────────────────────────────────────────────────────
+// ── Call lifecycle ──────────────────────────────────────────────────────────
 function wsUrl() {
   // Deployed: talk to the agent at PRATHAM_AI_URL. Local runs keep their own socket.
   const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
@@ -237,30 +282,81 @@ function wsUrl() {
   return (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws";
 }
 
-async function start() {
+// `auto` marks the call the page starts by itself on load. It changes nothing
+// about the call, only what is said when the browser refuses: on an auto-start
+// there is no click to blame, so the shop needs telling what to do.
+async function start(auto) {
   if (starting || running) return;
-  const url = wsUrl();
-  if (!url) { setStatus("Open http://localhost:8100 (python server.py), not the .html file.", "error"); return; }
-  starting = true;
-  callBtn.disabled = true;
-  setStatus("Connecting…");
+  try {
+    await startCall(auto);
+  } catch (err) {
+    // Never leave the page sitting on "Connecting…" with a dead button.
+    console.error(err);
+    starting = false;
+    teardown();
+    setStatus("Couldn't start the call (" + ((err && err.message) || err) + "). Click the button to try again.", "error");
+  }
+}
 
+async function startCall(auto) {
+  starting = true;
+  await Promise.race([configReady, new Promise((r) => setTimeout(r, 1500))]);
+  const url = wsUrl();
+  if (!url) {
+    starting = false;
+    setStatus("Open http://localhost:8100 (run: python server.py), not the .html file itself.", "error");
+    return;
+  }
+  // Browsers give a page the microphone only on https:// (or localhost). On a
+  // plain http://<server-ip> address navigator.mediaDevices does not exist.
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    starting = false;
+    setStatus("The microphone only works on an https:// address (or localhost). This page is " + location.origin + ".", "error");
+    return;
+  }
+
+  micBtn.disabled = true;
+  if (auto) setStatus("Connecting…");
+
+  // The audio context and the ring start at once, before the mic is even
+  // asked for, so the click gets instant feedback.
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === "suspended") { try { await audioCtx.resume(); } catch (e) {} }
-  try {  // unlock audio output inside the click gesture (iOS)
+  // On a site the browser does not yet trust to play sound (a new address,
+  // opened without a tap), resume() can stay pending forever. Give it a moment
+  // and judge by the state instead of hanging on "Connecting…".
+  if (audioCtx.state === "suspended") {
+    try { await Promise.race([audioCtx.resume(), new Promise((r) => setTimeout(r, 500))]); } catch (e) {}
+  }
+  // Autoplay policy: a context made without a gesture stays suspended on most
+  // browsers and every browser on iOS. The agent would talk into a muted
+  // output, so wait for any tap; the retry runs inside a real gesture.
+  if (audioCtx.state !== "running") {
+    starting = false;
+    teardown();
+    armGesture();
+    return;
+  }
+  // iOS Safari only truly unlocks output once a real buffer has played inside
+  // the gesture; without this the ring and the greeting can be swallowed.
+  try {
     const u = audioCtx.createBufferSource();
     u.buffer = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
     u.connect(audioCtx.destination); u.start(0);
   } catch (e) {}
   inBuf = new Float32Array(0); readPos = 0; nextPlayTime = 0;
+  pickupBuffer = [];
+  startRingback();
 
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
     });
   } catch (err) {
-    starting = false; teardown();
-    setStatus("Microphone blocked — allow it in the address bar, then try again.", "error");
+    starting = false;
+    teardown();
+    setStatus(auto
+      ? "Microphone blocked. Allow the mic (lock icon in the address bar), then reload."
+      : "Microphone blocked. Allow the mic (lock icon in the address bar), then click again.", "error");
     return;
   }
 
@@ -269,60 +365,111 @@ async function start() {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     opened = true; starting = false; running = true;
-    ws.send(JSON.stringify({ type: "start", instructions: promptEl.value }));
+    ws.send(JSON.stringify({ type: "start" }));
+    // Capture graph: mic → script processor, routed to a muted gain so
+    // onaudioprocess fires without playing the mic back to the speaker.
     sourceNode = audioCtx.createMediaStreamSource(micStream);
     processor = audioCtx.createScriptProcessor(2048, 1, 1);
     silentGain = audioCtx.createGain(); silentGain.gain.value = 0;
     processor.onaudioprocess = onAudio;
     sourceNode.connect(processor); processor.connect(silentGain); silentGain.connect(audioCtx.destination);
-    callBtn.disabled = false; callBtn.classList.add("live"); callBtn.textContent = "End call";
-    promptEl.disabled = true;
-    transcriptEl.innerHTML = ""; currentAgentEl = null;
-    setStatus("Listening…", "listening");
+    micBtn.disabled = false;
+    micBtn.classList.add("live");
+    micBtn.innerHTML = ICON_END;
+    micBtn.setAttribute("aria-label", "End call");
+    // Keep "Calling…" until the agent actually picks up (its first audio).
+    if (!ringing) setStatus("🎤 Listening…", "listening");
   };
   ws.onmessage = (ev) => {
     if (typeof ev.data === "string") {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.type === "ready") OUT_RATE = m.sample_rate || OUT_RATE;
-      else if (m.type === "user") onUser(m.text);
-      else if (m.type === "agent") onAgent(m.text, m.final, m.interrupted);
-      else if (m.type === "retract") onRetract();
-      else if (m.type === "clear") { clearPlayback(); setStatus("Listening…", "listening"); }
+      else if (m.type === "clear") { clearPlayback(); setStatus("🎤 Listening…", "listening"); }
       else if (m.type === "error") setStatus(m.text, "error");
+      else if (m.type === "hangup") { stop(); setStatus("Call ended."); }
       return;
     }
     let data = ev.data;
     if (data.byteLength % 2) data = data.slice(0, data.byteLength - 1);
     playPcm(new Int16Array(data));
   };
-  ws.onerror = () => { if (!opened) setStatus("Can't reach " + url + " — is server.py running?", "error"); };
-  ws.onclose = () => {
+  ws.onerror = () => {
+    if (!opened) setStatus("Can't reach the agent at " + url + " — is the server running?", "error");
+  };
+  ws.onclose = (ev) => {
     starting = false;
-    if (!opened) { teardown(); setStatus("Connection failed. Run: python server.py", "error"); return; }
+    if (!opened) {
+      teardown();
+      setStatus("Connection failed to " + url + (ev && ev.code ? " (code " + ev.code + ")" : "") +
+        ". Is the server running, and does the proxy in front of it pass WebSockets?", "error");
+      return;
+    }
     if (running) stop();
   };
 }
 
+// Release audio, mic and socket WITHOUT touching the status line, so a
+// diagnostic message set by the caller survives.
 function teardown() {
   running = false;
+  stopRingback();
   clearPlayback();
   try { if (processor) processor.onaudioprocess = null; } catch (e) {}
   for (const n of [sourceNode, processor, silentGain]) { try { n && n.disconnect(); } catch (e) {} }
-  try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { micStream && micStream.getTracks().forEach((t) => t.stop()); } catch (e) {}
   try { audioCtx && audioCtx.close(); } catch (e) {}
   ws = null; audioCtx = null; micStream = null; processor = null; sourceNode = null; silentGain = null;
-  callBtn.classList.remove("live"); callBtn.textContent = "Start call"; callBtn.disabled = false;
-  promptEl.disabled = false;
+  micBtn.classList.remove("live");
+  micBtn.innerHTML = ICON_CALL;
+  micBtn.setAttribute("aria-label", "Start call");
+  micBtn.disabled = false;
 }
 
 function stop() {
   try { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stop" })); } catch (e) {}
   try { ws && ws.close(); } catch (e) {}
   teardown();
-  setStatus("Call ended.");
+  setStatus("Stopped. Click the mic to talk again.");
 }
 
-callBtn.addEventListener("click", () => { running ? stop() : start(); });
+micBtn.innerHTML = ICON_CALL;   // start in the green "call" state
+micBtn.addEventListener("click", () => { running ? stop() : start(false); });
+
+// ── Auto-start ──────────────────────────────────────────────────────────────
+// Opening the page IS the call: it dials as soon as it loads. Two things can
+// stop that, and both are handled rather than left as silence: the browser's
+// autoplay policy (no gesture yet, so output is muted) and a microphone that
+// has not been allowed. The button stays, for hanging up and calling again.
+function armGesture() {
+  setStatus("Tap anywhere to start the call");
+  const go = () => {
+    document.removeEventListener("pointerdown", go);
+    document.removeEventListener("keydown", go);
+    document.removeEventListener("touchend", go);
+    start(false);
+  };
+  document.addEventListener("pointerdown", go);
+  document.addEventListener("keydown", go);
+  document.addEventListener("touchend", go);
+}
+
+// A tab opened in the background gets no audio and often no mic; dial when it
+// is actually looked at instead of failing before anyone sees it.
+function autoStart() {
+  if (document.visibilityState === "hidden") {
+    document.addEventListener("visibilitychange", function once() {
+      if (document.visibilityState !== "hidden") {
+        document.removeEventListener("visibilitychange", once);
+        start(true);
+      }
+    });
+    return;
+  }
+  start(true);
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", autoStart);
+else autoStart();
 </script>
 </body>
 </html>

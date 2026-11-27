@@ -12,13 +12,13 @@ copy .env.example .env      # fill in DEEPGRAM_API_KEY, OPENAI_API_KEY, ELEVENLA
 python server.py
 ```
 
-Open **http://localhost:8100**, click **Start call**, and talk. Use headphones.
+Open **http://localhost:8100**: the page dials the agent by itself (tap anywhere if the browser asks for a gesture first), rings until the agent picks up, and the red button hangs up. Use headphones.
 
 ## Change the agent
 
 - `prompt.md` — the persona. Edits apply on the next call, no restart.
 - `faq.json` — **what the agent knows**: the MRPscan app's own FAQ export, 51 questions in 12 sections, every question and answer in English and Hindi. It is rendered into the system prompt on every call, so answers come from approved text instead of invention. To update it, replace the file with the app's current FAQ JSON; the next caller gets it, no restart and no code change. Set `KNOWLEDGE_FILE` to another file (`.json` is rendered, anything else is used as written), or empty, to change or drop it.
-- The textarea on the page overrides `prompt.md` for that one call — paste a business description and talk to that agent. The FAQ still gets attached; empty `KNOWLEDGE_FILE` for an agent that should not know it.
+- The page sends no instructions of its own, so every call follows `prompt.md`. A client that wants another persona can still send `instructions` in its start message (see Socket details). The FAQ is attached either way; empty `KNOWLEDGE_FILE` for an agent that should not know it.
 
 ## Understanding the caller
 
@@ -71,7 +71,7 @@ Any client can drive a call over that socket:
 
 **Echo on a speakerphone.** The microphone stays open for the whole call, so the agent hears itself. A client watches its own microphone level while the agent speaks — the level settles at whatever the speaker feeds back, and a voice clearly above that is the caller — then stops playback and sends `interrupt`. The server guards the same case from its side: a transcript arriving while the agent talks counts as its own echo when most of its words are ones the agent just said (`BARGE_IN_ECHO_OVERLAP`, default 0.6, matched against the current reply and the one before it), or when it carries fewer than `BARGE_IN_MIN_NEW_WORDS` (default 2) words the agent did not say. `BARGE_IN_MIN_CHARS` (default 6) drops the shortest fragments.
 
-The page at `/` does exactly this. When the page is hosted on any non-localhost origin it connects to `socket_url`; on localhost it uses its own server.
+The page at `/` does exactly this, in the MRPscan Software look: one call button and a ringback tone until the agent's first audio. When the page is hosted on any non-localhost origin it connects to `socket_url`; on localhost it uses its own server.
 
 ## Host it (prathamai.mrpscan.com)
 
@@ -85,7 +85,7 @@ sudo cp deploy/pratham-ai.service /etc/systemd/system/ && sudo systemctl daemon-
 sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
 ```
 
-Check `https://prathamai.mrpscan.com/health`, then open the site and click Start call. Ports 80 and 443 must be open; the app itself listens only on `127.0.0.1:8100` behind Caddy.
+Check `https://prathamai.mrpscan.com/health`, then open the site; it dials by itself. Ports 80 and 443 must be open; the app itself listens only on `127.0.0.1:8100` behind Caddy.
 
 ## MRPscan app (Pratham AI tab)
 
@@ -98,7 +98,7 @@ The MRPscan app's bottom-bar **Pratham AI** tab dials this server directly over 
 
 - `server.py` — FastAPI: serves the page, bridges the browser WebSocket to a session.
 - `agent.py` — the engine: Flux turn events, speculative LLM drafting, barge-in with retraction, ElevenLabs input-streaming.
-- `ui/index.html` — mic capture (16 kHz PCM), playback (24 kHz PCM), live transcript.
+- `ui/index.html` — the MRPscan Software call page: auto-dial, ringback, mic capture (16 kHz PCM), playback (24 kHz PCM), talk-over detection.
 
 ## How a turn flows
 
